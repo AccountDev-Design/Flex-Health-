@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:keep="@array/android_wear_capabilities">
+    <!-- El reloj busca esta capability para saber a qué nodo enviar (CapabilityClient). -->
+    <string-array name="android_wear_capabilities" translatable="false">
+        <item>flex_heart_receiver</item>
+    </string-array>
+</resources>

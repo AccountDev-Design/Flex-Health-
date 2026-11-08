@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Flex Heart Monitor</string>
+    <string name="notif_channel">Monitorización</string>
+    <string name="notif_text">Recibiendo la frecuencia cardíaca del reloj</string>
+    <string name="notif_stop">Detener</string>
+    <string name="notif_show_overlay">Mostrar overlay</string>
+    <string name="notif_unlock_overlay">Desbloquear toques</string>
+</resources>
