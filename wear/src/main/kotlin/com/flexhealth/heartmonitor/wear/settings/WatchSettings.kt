@@ -16,8 +16,12 @@ data class WatchConfig(
     val sourceId: String = HeartRateSourceIds.EXERCISE,
     val sendToPhone: Boolean = true,
     val sendToTablet: Boolean = false,
-    /** Mantiene la CPU despierta durante la sesión para entregas más frecuentes (más batería). */
-    val lowLatency: Boolean = false,
+    /**
+     * Mantiene la CPU despierta y vacía los lotes del sensor cada 2 s, **solo mientras hay un receptor
+     * conectado**. Sin ello, con la pantalla apagada Health Services entrega en lotes y el receptor alterna
+     * entre «en vivo» y «sin señal» (causa C3). Desactivable para ahorrar batería.
+     */
+    val lowLatency: Boolean = true,
     val tabletPairingId: String? = null,
     val tabletName: String? = null,
     val tabletLastEndpoint: LanEndpoint? = null,
@@ -43,7 +47,7 @@ class WatchSettings(private val context: Context) {
             sourceId = p[K.source] ?: HeartRateSourceIds.EXERCISE,
             sendToPhone = p[K.phone] ?: true,
             sendToTablet = p[K.tablet] ?: false,
-            lowLatency = p[K.lowLatency] ?: false,
+            lowLatency = p[K.lowLatency] ?: true,
             tabletPairingId = p[K.pairingId],
             tabletName = p[K.tabletName],
             tabletLastEndpoint = p[K.host]?.let { h -> p[K.port]?.let { LanEndpoint(h, it) } },

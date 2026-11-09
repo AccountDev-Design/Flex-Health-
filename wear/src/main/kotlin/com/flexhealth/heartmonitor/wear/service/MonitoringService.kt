@@ -21,6 +21,7 @@ import androidx.wear.ongoing.OngoingActivity
 import androidx.wear.ongoing.Status
 import com.flexhealth.heartmonitor.core.android.DeviceIdentity
 import com.flexhealth.heartmonitor.protocol.HeartRatePacket
+import com.flexhealth.heartmonitor.protocol.LinkState
 import com.flexhealth.heartmonitor.protocol.SensorStatus
 import com.flexhealth.heartmonitor.wear.R
 import com.flexhealth.heartmonitor.wear.sensor.ExerciseHeartRateSource
@@ -32,6 +33,7 @@ import com.flexhealth.heartmonitor.wear.transport.DataLayerSender
 import com.flexhealth.heartmonitor.wear.transport.LanSender
 import com.flexhealth.heartmonitor.wear.ui.WearMainActivity
 import com.flexhealth.heartmonitor.wear.wearApp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
@@ -64,38 +66,45 @@ class MonitoringService : LifecycleService() {
     private fun startSession(allowTakeover: Boolean) {
         if (session?.isActive == true) return
         if (!goForeground()) return
-        session = lifecycleScope.launch {
+        // Toda la sesión (Keystore, JSON, AES-GCM, envíos) corre fuera del hilo principal: el hilo de UI
+        // del reloj solo dibuja (causa P1/P2). Los callbacks de Health Services solo encolan eventos.
+        session = lifecycleScope.launch(Dispatchers.Default) {
             val cfg = wearApp.settings.current()
+            val receiverConnected = { anyReceiverConnected() }
             val source: HeartRateSource = when (cfg.sourceId) {
                 HeartRateSourceIds.MEASURE -> MeasureHeartRateSource(this@MonitoringService)
-                else -> ExerciseHeartRateSource(this@MonitoringService, allowTakeover)
+                else -> ExerciseHeartRateSource(
+                    this@MonitoringService, allowTakeover,
+                    flushIntervalMs = if (cfg.lowLatency) FLUSH_INTERVAL_MS else null, flushWhile = receiverConnected,
+                )
             }
             val factory = PacketFactory(DeviceIdentity.model, source.id)
+            val gate = ReadingGate()
+            val counters = MonitoringRepository.counters
             MonitoringRepository.update {
                 WatchMonitorState(running = true, sourceId = source.id, sessionId = factory.sessionId,
                     sensorStatus = SensorStatus.ACQUIRING, lowLatency = cfg.lowLatency)
             }
-            if (cfg.lowLatency) acquireWakeLock()
 
             if (cfg.sendToPhone) {
                 val p = DataLayerSender(this@MonitoringService, this).also { phone = it }
                 p.start()
-                launch { p.status.collect { s -> MonitoringRepository.update { it.copy(phone = s) } } }
+                launch { p.status.collect { s -> MonitoringRepository.update { it.copy(phone = s) }; updateWakeLock(cfg.lowLatency) } }
             }
-            val record = cfg.tabletPairingId?.let { wearApp.pairings.find(it) }
+            val record = cfg.tabletPairingId?.let { wearApp.pairings.find(it) } // Keystore: fuera del hilo principal
             if (cfg.sendToTablet && record != null) {
                 val t = LanSender(this@MonitoringService, this, record, cfg.tabletLastEndpoint) { ep ->
                     wearApp.settings.setLastEndpoint(ep)
                 }.also { tablet = it }
                 t.start()
-                launch { t.status.collect { s -> MonitoringRepository.update { it.copy(tablet = s) } } }
+                launch { t.status.collect { s -> MonitoringRepository.update { it.copy(tablet = s) }; updateWakeLock(cfg.lowLatency) } }
             }
 
             fun dispatch(packet: HeartRatePacket) {
                 phone?.send(packet)
                 tablet?.send(packet)
                 lastSentElapsed = SystemClock.elapsedRealtime()
-                MonitoringRepository.update { it.copy(packetsSent = it.packetsSent + 1) }
+                counters.packetsSent.incrementAndGet()
             }
 
             // Latido de estado: si no hay lecturas, informa del estado (nunca de un BPM).
@@ -109,10 +118,12 @@ class MonitoringService : LifecycleService() {
             source.events().collect { ev ->
                 when (ev) {
                     is SensorEvent.Reading -> {
+                        if (!gate.accept(ev.timestampMs)) { counters.duplicateReadings.incrementAndGet(); return@collect }
                         dispatch(factory.sample(ev.bpm, ev.timestampMs, ev.quality))
+                        counters.readings.incrementAndGet()
                         MonitoringRepository.update {
                             it.copy(sensorStatus = SensorStatus.ACTIVE, sensorDetail = null, lastBpm = ev.bpm, lastQuality = ev.quality,
-                                lastReadingElapsed = SystemClock.elapsedRealtime(), readings = it.readings + 1)
+                                lastReadingElapsed = SystemClock.elapsedRealtime())
                         }
                     }
                     is SensorEvent.Status -> {
@@ -125,6 +136,17 @@ class MonitoringService : LifecycleService() {
             dispatch(factory.status(MonitoringRepository.state.value.sensorStatus.takeIf { it != SensorStatus.ACTIVE } ?: SensorStatus.STOPPED))
             stopSession(keepStatus = true)
         }
+    }
+
+    private fun anyReceiverConnected(): Boolean {
+        val st = MonitoringRepository.state.value
+        return st.phone?.state == LinkState.CONNECTED || st.tablet?.state == LinkState.CONNECTED
+    }
+
+    /** CPU despierta solo si «Baja latencia» está activa y hay algún receptor conectado. */
+    @Synchronized
+    private fun updateWakeLock(lowLatency: Boolean) {
+        if (lowLatency && session != null && anyReceiverConnected()) acquireWakeLock() else releaseWakeLock()
     }
 
     private fun stopSession(keepStatus: Boolean = false) {
@@ -185,7 +207,9 @@ class MonitoringService : LifecycleService() {
     }
 
     @SuppressLint("WakelockTimeout")
+    @Synchronized
     private fun acquireWakeLock() {
+        if (wakeLock?.isHeld == true) return
         val pm = getSystemService(PowerManager::class.java)
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "FlexHeart:lowLatency").apply {
             setReferenceCounted(false)
@@ -193,6 +217,7 @@ class MonitoringService : LifecycleService() {
         }
     }
 
+    @Synchronized
     private fun releaseWakeLock() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wakeLock = null
@@ -213,6 +238,7 @@ class MonitoringService : LifecycleService() {
         private const val CHANNEL = "monitoring"
         private const val NOTIFICATION_ID = 42
         private const val HEARTBEAT_MS = 2_000L
+        private const val FLUSH_INTERVAL_MS = 2_000L
         private const val MAX_WAKELOCK_MS = 4 * 60 * 60 * 1000L
         const val ACTION_START = "com.flexhealth.heartmonitor.wear.START"
         const val ACTION_STOP = "com.flexhealth.heartmonitor.wear.STOP"

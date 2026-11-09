@@ -15,11 +15,13 @@ import com.flexhealth.heartmonitor.wear.transport.WifiNetworkRequester
 import com.flexhealth.heartmonitor.wear.wearApp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 
 sealed interface PairingUi {
@@ -79,6 +81,8 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
         job = viewModelScope.launch {
             if (wifi.await(20_000) == null) { _ui.value = PairingUi.NoWifi; return@launch }
             try {
+                // ECDH, HKDF y Android Keystore fuera del hilo principal (causa P2).
+                withContext(Dispatchers.IO) {
                 val record = pairWithReceiver(
                     client, endpoint, DeviceIdentity.id(app), DeviceIdentity.displayName(),
                     onCode = { code, name -> _ui.value = PairingUi.Code(code, name) },
@@ -91,6 +95,7 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
                 app.wearApp.pairings.save(record)
                 app.wearApp.settings.setTablet(record.pairingId, record.peerName, endpoint)
                 _ui.value = PairingUi.Success(record.peerName)
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

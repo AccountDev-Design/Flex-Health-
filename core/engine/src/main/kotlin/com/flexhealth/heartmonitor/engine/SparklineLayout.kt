@@ -34,7 +34,8 @@ class SparklineLayout(capacity: Int) {
         val n = history.count
         if (n == 0 || width <= 0f || height <= 0f) return 0
         var lo = Int.MAX_VALUE; var hi = Int.MIN_VALUE
-        for (i in 0 until n) { val v = history.bpm[i]; if (v < lo) lo = v; if (v > hi) hi = v }
+        for (i in 0 until n) { if (history.unreliable[i]) continue; val v = history.bpm[i]; if (v < lo) lo = v; if (v > hi) hi = v }
+        if (lo == Int.MAX_VALUE) return 0 // solo lecturas no fiables: no se dibuja línea
         val span = maxOf(hi - lo, minSpanBpm)
         val mid = (hi + lo) / 2f
         val padded = span * (1 + 2 * paddingFraction)
@@ -42,11 +43,15 @@ class SparklineLayout(capacity: Int) {
         yMax = (mid + padded / 2).toInt() + 1
         val yRange = (yMax - yMin).toFloat()
         var prevAge = Long.MIN_VALUE
+        var forceBreak = false
         for (i in 0 until n) {
+            // Las lecturas no fiables no se unen a la línea: cortan el segmento.
+            if (history.unreliable[i]) { forceBreak = prevAge != Long.MIN_VALUE; continue }
             val age = history.ageMs[i]
             val x = width * (1f - (age + timeShiftMs) / windowMs)
             val y = height * (1f - (history.bpm[i] - yMin) / yRange)
-            val breakSegment = i > 0 && prevAge - age > gapMs
+            val breakSegment = prevAge != Long.MIN_VALUE && (forceBreak || prevAge - age > gapMs)
+            forceBreak = false
             if (breakSegment && pointCount < points.size / 2) {
                 points[pointCount * 2] = Float.NaN; points[pointCount * 2 + 1] = Float.NaN; pointCount++
             }

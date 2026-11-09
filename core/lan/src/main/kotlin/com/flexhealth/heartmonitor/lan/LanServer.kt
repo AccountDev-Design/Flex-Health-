@@ -33,6 +33,12 @@ data class LanServerConfig(
     /** `null` = todas las interfaces de la red local. */
     val bindHost: String? = null,
     val authTimeoutMs: Long = 10_000,
+    /**
+     * Cierra una sesión autenticada si no llega NINGUNA trama del reloj en este tiempo. Sustituye la
+     * detección de Java-WebSocket, que solo cuenta los PONG de WebSocket (no las muestras ni los pings
+     * cifrados) y cortaba relojes activos con la CPU suspendida (causa C1, ver LivenessEvidenceTest).
+     */
+    val idleTimeoutMs: Long = 45_000,
     val pairingTimeoutMs: Long = 180_000,
     val maxAuthFailuresPerMinute: Int = 5,
 )
@@ -71,6 +77,8 @@ class LanServer(
     private val requestIds = AtomicInteger(0)
     private val pendingPairings = ConcurrentHashMap<Int, Conn>()
     private val authFailures = ConcurrentHashMap<String, MutableList<Long>>()
+    private val liveConns = ConcurrentHashMap.newKeySet<Conn>()
+    private var idleCheck: ScheduledFuture<*>? = null
     @Volatile private var active: Conn? = null
     private var server: Impl? = null
 
@@ -83,7 +91,12 @@ class LanServer(
         val address = config.bindHost?.let { InetSocketAddress(it, config.port) } ?: InetSocketAddress(config.port)
         val impl = Impl(address, started)
         impl.isReuseAddr = true
-        impl.connectionLostTimeout = 15
+        impl.connectionLostTimeout = 0 // ver idleTimeoutMs
+        val period = (config.idleTimeoutMs / 3).coerceAtLeast(100)
+        idleCheck = timers.scheduleWithFixedDelay({
+            val now = System.nanoTime() / 1_000_000
+            liveConns.forEach { it.closeIfIdle(now) }
+        }, period, period, TimeUnit.MILLISECONDS)
         impl.setMaxPendingConnections(8)
         server = impl
         impl.start()
@@ -97,8 +110,10 @@ class LanServer(
     fun stop() {
         val s = server ?: return
         server = null
+        idleCheck?.cancel(false); idleCheck = null
         active = null
         pendingPairings.clear()
+        liveConns.clear()
         try { s.stop(1_000, "server stopping") } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
     }
 
@@ -139,6 +154,11 @@ class LanServer(
         private var channel: SecureChannel? = null
         private var timeout: ScheduledFuture<*>? = null
         private var closing = false
+        @Volatile private var lastFrameAt = System.nanoTime() / 1_000_000
+
+        fun closeIfIdle(nowMs: Long) {
+            if (phase == Phase.AUTHENTICATED && nowMs - lastFrameAt > config.idleTimeoutMs) closeWith(LanErrorCodes.TIMEOUT, "idle")
+        }
         var peer: PeerInfo? = null
             private set
 
@@ -149,6 +169,7 @@ class LanServer(
 
         @Synchronized
         fun onText(text: String) {
+            lastFrameAt = System.nanoTime() / 1_000_000
             val msg = LanMessage.decode(text)
             if (msg == null) { closeWith(LanErrorCodes.PROTOCOL, "malformed"); return }
             try {
@@ -295,6 +316,7 @@ class LanServer(
             if (phase == Phase.CLOSED) return
             val wasAuth = phase == Phase.AUTHENTICATED
             phase = Phase.CLOSED
+            liveConns.remove(this)
             timeout?.cancel(false)
             finishPairing(null, "Conexión cerrada")
             if (active === this) active = null
@@ -318,6 +340,7 @@ class LanServer(
             }
             val c = Conn(conn, address)
             conn.setAttachment(c)
+            liveConns.add(c)
             c.armTimeout(config.authTimeoutMs)
         }
 

@@ -19,7 +19,10 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.guava.await
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 
 /**
  * Fuente basada en Health Services ExerciseClient: la vía oficial para monitorización continua
@@ -35,6 +38,12 @@ import kotlinx.coroutines.guava.await
 class ExerciseHeartRateSource(
     private val context: Context,
     private val allowTakeover: Boolean = false,
+    /**
+     * Si no es `null`, llama a ExerciseClient.flushAsync() con este periodo mientras [flushWhile] sea
+     * cierto, para que los puntos agrupados por el sensor se entreguen de inmediato (modo baja latencia).
+     */
+    private val flushIntervalMs: Long? = null,
+    private val flushWhile: () -> Boolean = { true },
 ) : HeartRateSource {
     override val id = HeartRateSourceIds.EXERCISE
 
@@ -95,6 +104,14 @@ class ExerciseHeartRateSource(
                 .build()
             exercise.startExerciseAsync(config).await()
             send(SensorEvent.Status(SensorStatus.ACQUIRING, if (batching.isEmpty()) "batching_default" else "batching_hr_5s"))
+            flushIntervalMs?.let { period ->
+                launch {
+                    while (isActive) {
+                        delay(period)
+                        if (flushWhile()) runCatching { exercise.flushAsync().await() }
+                    }
+                }
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: SecurityException) {

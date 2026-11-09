@@ -40,11 +40,14 @@ class SecureChannel(sendKey: ByteArray, recvKey: ByteArray) {
     private val recvKeySpec = SecretKeySpec(recvKey, "AES")
     private var sendCounter = 0L
     private var lastReceived = -1L
+    // Instancias reutilizadas (acceso sincronizado): evita la búsqueda de proveedor JCA en cada mensaje.
+    private val encryptCipher: Cipher = Cipher.getInstance(TRANSFORMATION)
+    private val decryptCipher: Cipher = Cipher.getInstance(TRANSFORMATION)
 
     @Synchronized
     fun seal(plaintext: ByteArray): LanMessage.Secure {
         val counter = sendCounter++
-        val cipher = Cipher.getInstance(TRANSFORMATION)
+        val cipher = encryptCipher
         cipher.init(Cipher.ENCRYPT_MODE, sendKeySpec, GCMParameterSpec(TAG_BITS, nonce(counter)))
         cipher.updateAAD(aad(counter))
         return LanMessage.Secure(counter, CryptoBytes.b64(cipher.doFinal(plaintext)))
@@ -57,7 +60,7 @@ class SecureChannel(sendKey: ByteArray, recvKey: ByteArray) {
         val data = CryptoBytes.unb64(msg.payload) ?: return null
         if (data.size < TAG_BITS / 8) return null
         return try {
-            val cipher = Cipher.getInstance(TRANSFORMATION)
+            val cipher = decryptCipher
             cipher.init(Cipher.DECRYPT_MODE, recvKeySpec, GCMParameterSpec(TAG_BITS, nonce(msg.counter)))
             cipher.updateAAD(aad(msg.counter))
             cipher.doFinal(data).also { lastReceived = msg.counter }

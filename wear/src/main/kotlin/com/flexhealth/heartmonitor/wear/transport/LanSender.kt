@@ -38,13 +38,23 @@ class LanSender(
     private var link: LanLink? = null
     private var mirror: Job? = null
 
+    @Volatile private var cached: LanEndpoint? = lastKnown
+    @Volatile private var preferCached = true
+    private var netWatch: Job? = null
+
     fun start() {
         if (link != null) return
         wifi.request()
         val l = LanLink(scope, client, record, resolveEndpoint = ::resolve)
         link = l
+        // Al recuperar la red Wi-Fi se reintenta al momento, sin esperar el backoff (causa C4).
+        netWatch = scope.launch {
+            var had = wifi.network.value != null
+            wifi.network.collect { n -> if (n != null && !had) l.reconnectNow(); had = n != null }
+        }
         mirror = scope.launch {
             l.status.collect { s ->
+                if (s.state == LinkState.CONNECTED) preferCached = true
                 _status.value = if (wifi.network.value == null && s.state != LinkState.CONNECTED) {
                     s.copy(state = LinkState.UNAVAILABLE, detail = "Esperando red Wi-Fi del reloj")
                 } else s
@@ -53,17 +63,25 @@ class LanSender(
         l.start()
     }
 
+    /**
+     * Primero la última dirección que funcionó (reconexión inmediata, sin esperar a mDNS); si ese intento
+     * falla, el siguiente busca la tablet por mDNS por si cambió de IP. Alterna hasta conectar.
+     */
     private suspend fun resolve(): LanEndpoint? {
         val network = wifi.await(15_000) ?: return null
+        val known = cached
+        if (preferCached && known != null) { preferCached = false; return known }
+        preferCached = true
         val found = nsd.find(record.peerId, network, 6_000)
-        if (found != null) { onEndpointResolved(found); return found }
-        return lastKnown // mDNS bloqueado por el router: se intenta la última dirección conocida
+        if (found != null) { cached = found; onEndpointResolved(found); return found }
+        return known // mDNS bloqueado por el router: se intenta la última dirección conocida
     }
 
     fun send(packet: HeartRatePacket): Boolean = link?.send(packet) ?: false
 
     /** Cierre inmediato sin suspender (seguro en el hilo principal durante onDestroy). */
     fun close() {
+        netWatch?.cancel(); netWatch = null
         mirror?.cancel(); mirror = null
         link?.close(); link = null
         wifi.release()
@@ -71,6 +89,7 @@ class LanSender(
     }
 
     suspend fun stop() {
+        netWatch?.cancel(); netWatch = null
         mirror?.cancel(); mirror = null
         link?.stop(); link = null
         wifi.release()

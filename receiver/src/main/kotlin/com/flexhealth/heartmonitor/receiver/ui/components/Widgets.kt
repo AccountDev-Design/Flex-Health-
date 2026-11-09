@@ -74,7 +74,12 @@ fun BpmHero(s: MonitorSnapshot, modifier: Modifier = Modifier) {
     }
     val bpm = s.displayBpm
     val color by animateColorAsState(
-        when (s.freshness) { Freshness.LIVE -> Flex.TextHigh; Freshness.STALE -> Flex.TextMid; else -> Flex.TextLow }, label = "bpm",
+        when {
+            bpm != null && !s.reliable -> Flex.Warn // lectura real pero marcada como no fiable
+            s.freshness == Freshness.LIVE -> Flex.TextHigh
+            s.freshness == Freshness.STALE -> Flex.TextMid
+            else -> Flex.TextLow
+        }, label = "bpm",
     )
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(
@@ -86,9 +91,17 @@ fun BpmHero(s: MonitorSnapshot, modifier: Modifier = Modifier) {
         Text(bpm?.toString() ?: "--", style = MaterialTheme.typography.displayLarge, color = color)
         Column(Modifier.padding(start = 8.dp, top = 18.dp)) {
             Text("BPM", style = MaterialTheme.typography.titleMedium, color = Flex.TextMid)
-            FreshnessPill(s.freshness)
+            DataPill(s)
         }
     }
+}
+
+/** Estado del dato con la misma prioridad que el overlay (OverlayStatus.dataLine). */
+@Composable
+fun DataPill(s: MonitorSnapshot) {
+    val line = com.flexhealth.heartmonitor.receiver.overlay.OverlayStatus.dataLine(s)
+    if (line == null) { Pill("En vivo", Flex.Ok); return }
+    Pill(line.text, if (line.severity == com.flexhealth.heartmonitor.receiver.overlay.Severity.BAD) Flex.Bad else Flex.Warn)
 }
 
 @Composable

@@ -40,7 +40,16 @@
 3. **Tiempo** (`ClockSync`): desfase = mínimo deslizante (30 muestras) de `recepción − medición`. Retraso de
    cada muestra = diferencia respecto a ese mínimo. Retraso ≥ 2,5 s → lectura **atrasada** (se dibuja en su
    instante real y se cuenta). Las posiciones en la gráfica usan el reloj monotónico del receptor.
-4. **Actualidad**: < 3 s `LIVE`, 3–5 s `STALE` (datos marcados como desactualizados), ≥ 5 s `LOST`
+4. **Precisión (desde 2026-11-09)**:
+   - Un paquete de estado más reciente que la última lectura que indique que el sensor no mide (fuera de la
+     muñeca, buscando pulso, sin permiso, ocupado, error, detenido) **oculta el BPM al momento**.
+   - Calidad `unreliable`: la lectura real se muestra marcada como «No fiable», sin entrar en mín/media/máx
+     ni en la línea de la gráfica.
+   - Saltos inverosímiles (> max(30 BPM, 12 BPM/s × Δt) respecto de la última lectura fiable de los
+     últimos 10 s) quedan retenidos («Verificando»): si la siguiente muestra lo confirma (±15 BPM en ≤ 5 s)
+     se guardan ambas; si no, el pico se descarta y se cuenta. No se interpola ni se sustituye nada.
+   - El reloj descarta en origen lecturas con marca temporal repetida o anterior.
+5. **Actualidad**: < 3 s `LIVE`, 3–5 s `STALE` (datos marcados como desactualizados), ≥ 5 s `LOST`
    (se oculta el BPM). Al reconectar se continúa con datos nuevos; no se reenvía nada antiguo.
 
 ## Modo smartphone — Wear Data Layer
@@ -65,8 +74,16 @@
 - En el reloj la red se obtiene con `ConnectivityManager.requestNetwork(TRANSPORT_WIFI)` sin exigir
   `NET_CAPABILITY_INTERNET`, y el socket se ata a esa red (no sale por el proxy Bluetooth del teléfono).
 - Límites: tramas ≤ 8 KB, autenticación en ≤ 10 s, 5 fallos/min por IP → bloqueo temporal, un solo reloj
-  activo (una reconexión del mismo reloj sustituye a la anterior; otro reloj recibe `busy`), *ping* WebSocket
-  de OkHttp cada 5 s y `connectionLostTimeout` de 15 s en el servidor.
+  activo (una reconexión del mismo reloj sustituye a la anterior; otro reloj recibe `busy`).
+- **Vida del enlace (desde 2026-11-09):** un único mecanismo, tolerante a la suspensión del reloj y al ahorro
+  de energía del Wi-Fi:
+  - Reloj: ping **cifrado** cada 10 s; si no llega ninguna trama de la tablet en 35 s → reconexión. OkHttp ya
+    no usa `pingInterval` (fallaba en cuanto un PONG llegaba tarde).
+  - Tablet: cierra una sesión autenticada si no llega **ninguna** trama del reloj en 45 s. La detección de
+    Java-WebSocket (`connectionLostTimeout`) está desactivada porque solo contaba PONG de WebSocket y cortaba
+    relojes activos con la CPU suspendida.
+  - Reconexión: primero la última IP que funcionó y, si falla, mDNS; *backoff* 1→15 s que se omite en cuanto
+    vuelve la red Wi-Fi del reloj.
 
 ### Emparejamiento (comparación numérica con compromiso)
 

@@ -64,6 +64,9 @@ Wi-Fi se prueban en la JVM, incluida una conexión WebSocket real por TCP (loopb
 - **`MonitoringService`**: servicio en primer plano `foregroundServiceType="health"`, una única sesión
   (las llamadas repetidas se ignoran), Ongoing Activity, *wake lock* opcional con límite de 4 h
   («Baja latencia», desactivado por defecto) y latido de **estado** cada 2 s sin lecturas (nunca un BPM).
+- **Hilos:** toda la sesión (Keystore, JSON, AES-GCM, envíos) se ejecuta en `Dispatchers.Default`; el hilo
+  principal del reloj solo dibuja. La UI observa un modelo reducido (`MonitorUi`) que no cambia con RTT,
+  detalles ni contadores, y oculta el BPM con un único temporizador en lugar de un bucle de 1 Hz.
 - **Transportes** en paralelo según ajustes: `DataLayerSender` (CapabilityClient + MessageClient) y
   `LanSender` (red Wi-Fi solicitada con `requestNetwork`, socket atado a esa red, mDNS o última IP
   conocida, `LanLink` con reconexión exponencial 1→15 s).

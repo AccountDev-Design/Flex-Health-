@@ -4,15 +4,15 @@
 
 | Tipo | Estado |
 |---|---|
-| Pruebas automatizadas JVM | ✅ 54 pruebas: protocolo 21, motor 13, transporte LAN 15 (1 omitida si la máquina no tiene IP privada), reloj 5 |
-| Pruebas del receptor (Robolectric + configuración) | ✅ 20 pruebas: geometría del overlay 6, overlay real 9, capturas 4, política de tráfico en claro 1 (se ejecutan para ambos *flavors*) |
+| Pruebas automatizadas JVM | ✅ 73 pruebas: protocolo 22, motor 22, transporte LAN 22 (1 omitida si la máquina no tiene IP privada), reloj 7 |
+| Pruebas del receptor (Robolectric + configuración) | ✅ 22 pruebas: geometría del overlay 6, overlay real 9, estado del overlay 2, capturas 4, política de tráfico en claro 1 (se ejecutan para ambos *flavors*) |
 | Pruebas en emulador | ❌ **No ejecutadas**: el entorno de desarrollo no tiene `/dev/kvm`, así que no puede arrancar un emulador Android. |
 | Pruebas en hardware físico | ❌ **No ejecutadas**: no hay acceso al SM-R950, al Galaxy A55 5G ni a la Galaxy Tab S10 FE. |
 | Lint | ✅ 0 incidencias en `:wear`, `:receiver` (mobile y tablet) y `:core:android` |
 | Compilación | ✅ `assembleDebug` y `assembleRelease` (R8) de las tres APK |
 
 ```bash
-./gradlew test       # 94 ejecuciones (74 pruebas únicas; las de :receiver corren en mobile y tablet)
+./gradlew test       # 117 ejecuciones (95 pruebas únicas; las de :receiver corren en mobile y tablet)
 ```
 
 ## 2. Pruebas automatizadas
@@ -27,6 +27,10 @@
 | Paquetes del reloj aceptados por el motor del receptor | `wear/.../PacketFactoryTest` |
 | Tráfico en claro solo hacia IP locales: alias de IP dinámicas, rechazo de IP públicas y nombres manipulados, NSC del reloj, receptor sin excepciones | `core/lan/.../LocalAddressAliasTest`, `LanIntegrationTest.clientRefusesNonLocalDestinationsWithoutConnecting`, `LanIntegrationTest.pairsAndStreamsThroughPrivateLanAddress`, `wear/.../NetworkSecurityConfigTest`, `receiver/.../CleartextPolicyTest` |
 | Movimiento, límites de pantalla, bloqueo, pulsación larga → menú, redimensionado desde esquina, rotación, persistencia, modo juego (toques a través, opacidad ≤ 0,8), minimizar, presets, ocultar 30 s, sin permiso | `receiver/.../OverlayControllerTest`, `OverlayGeometryTest` |
+| Evidencia de causas de desconexión (Java-WebSocket corta sin PONG; OkHttp falla con un PONG tardío) | `core/lan/.../LivenessEvidenceTest` |
+| Reconexiones: actividad sin PONG, sesión silenciosa, red lenta, suspensión corta/larga, reconexión inmediata | `core/lan/.../LanLivenessTest` (proxy TCP con retardo/congelación) |
+| Lecturas inválidas: fuera de la muñeca, no fiables, picos aislados, cambios reales confirmados, datos antiguos | `core/engine/.../AccuracyTest`, `wear/.../ReadingGateTest`, `receiver/.../OverlayStatusTest` |
+| Rendimiento (JVM, límites holgados): ingesta, fotograma de gráfica, cifrado; UI del reloj sin emisiones invisibles | `PerformanceTest`, `CryptoPerformanceTest`, `wear/.../MonitorUiFlowTest` |
 | Revisión visual | `receiver/.../ScreenshotTest` → `build/screenshots/*.png` |
 
 ## 3. Instalación en los dispositivos

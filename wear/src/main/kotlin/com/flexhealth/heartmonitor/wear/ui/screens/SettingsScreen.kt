@@ -21,6 +21,7 @@ import com.flexhealth.heartmonitor.wear.sensor.HeartRateSourceIds
 import com.flexhealth.heartmonitor.wear.service.MonitoringRepository
 import com.flexhealth.heartmonitor.wear.settings.WatchConfig
 import com.flexhealth.heartmonitor.wear.wearApp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 @Composable
@@ -51,7 +52,7 @@ fun SettingsScreen(onPair: () -> Unit) {
             if (cfg.tabletPairingId != null) {
                 item {
                     FilledTonalButton(onClick = {
-                        scope.launch { cfg.tabletPairingId?.let { app.pairings.delete(it) }; app.settings.clearTablet() }
+                        scope.launch(Dispatchers.IO) { cfg.tabletPairingId?.let { app.pairings.delete(it) }; app.settings.clearTablet() }
                     }, enabled = editable, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.unpair)) })
                 }
             }

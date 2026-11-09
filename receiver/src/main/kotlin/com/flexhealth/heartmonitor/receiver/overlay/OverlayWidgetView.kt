@@ -109,7 +109,8 @@ class OverlayWidgetView(
     fun update(s: MonitorSnapshot, l: LinkStatus) {
         val newSample = s.historyVersion != lastHistoryVersion && s.freshness == Freshness.LIVE && s.stats.samples > 0
         val changed = s.displayBpm != snapshot.displayBpm || s.freshness != snapshot.freshness ||
-            s.historyVersion != snapshot.historyVersion || l.state != link.state
+            s.historyVersion != snapshot.historyVersion || l.state != link.state || s.reliable != snapshot.reliable ||
+            s.verifying != snapshot.verifying || s.signalIssue != snapshot.signalIssue
         snapshot = s; link = l
         if (s.historyVersion != lastHistoryVersion) {
             val now = android.os.SystemClock.elapsedRealtime()
@@ -163,7 +164,10 @@ class OverlayWidgetView(
 
         // BPM.
         val bpm = snapshot.displayBpm
+        val dataLine = OverlayStatus.dataLine(snapshot)
         bpmPaint.textSize = h * (if (minimized) 0.52f else 0.46f)
+        // Lectura no fiable: se muestra (es real) pero en ámbar y con aviso; nunca como lectura normal.
+        bpmPaint.color = if (bpm != null && !snapshot.reliable) WARN else Color.WHITE
         bpmPaint.alpha = when { lost || bpm == null -> 150; stale -> 140; else -> 255 }
         val text = bpm?.toString() ?: "--"
         val tx = hx + heartSize / 2f + pad * 0.6f
@@ -175,16 +179,10 @@ class OverlayWidgetView(
             labelPaint.textSize = h * 0.17f
             labelPaint.color = 0xB3FFFFFF.toInt()
             canvas.drawText("BPM", textEnd + 4 * d, baseline, labelPaint)
-            val sub = when {
-                lost -> "Sin señal"
-                stale -> "Desactualizado"
-                snapshot.freshness == Freshness.WAITING -> "Esperando"
-                else -> null
-            }
-            if (sub != null && h >= 50 * d) {
+            if (dataLine != null && h >= 50 * d) {
                 labelPaint.textSize = h * 0.15f
-                labelPaint.color = if (lost) 0xFFFF6B81.toInt() else 0xFFFFC145.toInt()
-                canvas.drawText(sub, tx, baseline + labelPaint.textSize * 1.3f, labelPaint)
+                labelPaint.color = if (dataLine.severity == Severity.BAD) 0xFFFF6B81.toInt() else WARN
+                canvas.drawText(dataLine.text, tx, baseline + labelPaint.textSize * 1.3f, labelPaint)
             } else if (!prefs.gameMode && h >= 90 * d && snapshot.windowAvg != null) {
                 labelPaint.textSize = h * 0.13f
                 canvas.drawText("mín ${snapshot.windowMin} · máx ${snapshot.windowMax} · media ${snapshot.windowAvg}", tx, baseline + labelPaint.textSize * 1.6f, labelPaint)
@@ -199,12 +197,12 @@ class OverlayWidgetView(
             if (graphRect.width() > 24 * d) drawGraph(canvas, lost || stale)
         }
 
-        // Indicador de conexión.
-        dotPaint.color = when {
-            link.state == LinkState.CONNECTED && snapshot.freshness == Freshness.LIVE -> 0xFF3DDC97.toInt()
-            lost || link.state == LinkState.ERROR || link.state == LinkState.UNAVAILABLE -> 0xFFFF4D67.toInt()
-            stale || link.state == LinkState.SEARCHING || link.state == LinkState.CONNECTING || link.state == LinkState.AUTHENTICATING -> 0xFFFFC145.toInt()
-            else -> 0xFF8A8F98.toInt()
+        // Indicador de conexión: SOLO el estado del enlace (la actualidad del dato va en el texto).
+        dotPaint.color = when (OverlayStatus.linkSeverity(link.state)) {
+            Severity.OK -> 0xFF3DDC97.toInt()
+            Severity.WARN -> WARN
+            Severity.BAD -> 0xFFFF4D67.toInt()
+            Severity.IDLE -> 0xFF8A8F98.toInt()
         }
         canvas.drawCircle(panel.right - r * 0.55f, panel.top + r * 0.55f, 3f * d, dotPaint)
 
@@ -320,5 +318,5 @@ class OverlayWidgetView(
 
     override fun performClick(): Boolean { super.performClick(); return true }
 
-    private companion object { val HEART = 0xFFFF3B5C.toInt() }
+    private companion object { val HEART = 0xFFFF3B5C.toInt(); val WARN = 0xFFFFC145.toInt() }
 }

@@ -62,4 +62,5 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(project(":core:engine"))
+    testImplementation(libs.kotlinx.coroutines.test)
 }

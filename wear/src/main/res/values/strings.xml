@@ -20,7 +20,7 @@
     <string name="source_measure">Rápida (MeasureClient)</string>
     <string name="source_measure_hint">Solo con la app visible</string>
     <string name="low_latency">Baja latencia</string>
-    <string name="low_latency_hint">Más entregas, más batería</string>
+    <string name="low_latency_hint">Tiempo real con receptor conectado (más batería)</string>
     <string name="paired_with">Emparejado: %1$s</string>
     <string name="unpair">Olvidar tablet</string>
     <string name="not_paired">Sin tablet emparejada</string>
@@ -52,5 +52,6 @@
     <string name="status_unknown">Estado desconocido</string>
     <string name="link_phone">Tel.</string>
     <string name="link_tablet">Tab.</string>
+    <string name="unreliable">Lectura no fiable</string>
     <string name="wellness_note">Solo bienestar. No apto para diagnóstico.</string>
 </resources>

@@ -8,14 +8,18 @@
 ## Sensor (reloj)
 - **Samsung Health Sensor SDK no integrado**: requiere descargar un AAR fuera de Maven y aprobación del
   Samsung Partner Program para distribuir. Ver DEVICE_COMPATIBILITY.md.
-- **No hay garantía de 1 Hz.** ExerciseClient agrupa las entregas con la pantalla apagada. Con
-  `HEART_RATE_5_SECONDS` (si el dispositivo lo admite) las muestras pueden llegar en lotes cada ~5 s; el
-  receptor puede marcar *STALE* entre lotes aunque las mediciones sean continuas. Las muestras del lote se
-  dibujan en su instante real y se cuentan como «atrasadas». «Baja latencia» (*wake lock*) puede reducirlo a
-  costa de batería; está sin medir.
+- **No hay garantía de 1 Hz.** ExerciseClient agrupa las entregas con la pantalla apagada (reproducido en
+  `EngineTest`/evidencia: con lotes cada 5 s el receptor alterna «en vivo»/«sin señal»). Desde 2026-11-09
+  «Baja latencia» está **activada por defecto**: mantiene la CPU despierta y llama a `flushAsync()` cada 2 s
+  solo mientras hay un receptor conectado. Su efecto real en la frecuencia de entrega y en la batería **no está
+  medido** en el SM-R950 (P-03, P-20). Si se desactiva, el receptor mostrará honestamente «Desactualizado»/«Sin
+  señal» entre lotes; el indicador de conexión ya no se pone rojo por ello.
 - Solo un ejercicio activo por dispositivo: iniciar un entrenamiento en Samsung Health detiene la sesión de
   Flex Heart (se informa con estado `busy`).
 - MeasureClient solo entrega datos con la app visible.
+
+- El filtro de picos puede retrasar ~1 muestra la aparición de un cambio real muy brusco (se confirma con la
+  siguiente lectura) y no puede juzgar la primera lectura de una sesión ni lecturas tras ≥ 10 s sin datos.
 
 ## Smartphone (Data Layer)
 - Data Layer **no es exclusivamente Bluetooth**: si no hay Bluetooth puede enrutar por Wi-Fi/LTE a través de
@@ -43,6 +47,9 @@
 - El transporte es `ws://` con cifrado y autenticación de aplicación (AES-256-GCM tras ECDH), no TLS.
 - Android 17+: si se sube `targetSdk` a 37, podrían aplicarse restricciones nuevas de acceso a red local.
   Revisarlas antes de hacerlo.
+
+- Tras perder el reloj, la tablet mantiene la sesión como «Conectado» hasta 45 s (tiempo de inactividad);
+  durante ese tiempo el dato ya aparece como «Sin señal» a los 5 s.
 
 ## Overlay
 - Necesita el permiso «Mostrar sobre otras apps». Android no permite superponerse a **todas** las interfaces:

@@ -49,6 +49,9 @@ fun DiagnosticsScreen(s: MonitorSnapshot, link: LinkStatus, mode: MonitorMode) {
             KeyValue("Atrasados (≥ 2,5 s)", st.late.toString())
             KeyValue("Perdidos (huecos de secuencia)", st.lost.toString(), if (st.lost > 0) Flex.Warn else Flex.TextHigh)
             KeyValue("Demasiado antiguos", st.tooOld.toString())
+            KeyValue("No fiables (según el sensor)", st.unreliable.toString(), if (st.unreliable > 0) Flex.Warn else Flex.TextHigh)
+            KeyValue("Picos descartados", st.suspicious.toString(), if (st.suspicious > 0) Flex.Warn else Flex.TextHigh)
+            KeyValue("Saltos confirmados", st.confirmedJumps.toString())
             KeyValue("Sesiones", st.sessions.toString())
         }
         GlassCard(Modifier.fillMaxWidth()) {

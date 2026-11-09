@@ -39,12 +39,15 @@ data class LanEndpoint(val host: String, val port: Int) {
 }
 
 object LanClients {
-    /** Cliente OkHttp adecuado para la red local. En el reloj se le inyecta el SocketFactory de la red Wi-Fi. */
+    /**
+     * Cliente OkHttp para la red local. En el reloj se le inyecta el SocketFactory de la red Wi-Fi.
+     * Sin `pingInterval`: OkHttp cerraba el socket si un solo PONG llegaba tarde (causa C2). La vida del
+     * enlace la vigila [LanLink] con su ping cifrado y un margen tolerante a la suspensión del reloj.
+     */
     fun okHttp(builder: OkHttpClient.Builder = OkHttpClient.Builder()): OkHttpClient = builder
         .dns(LocalAddressAlias.dns) // solo IP locales; sin consultas DNS externas
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
-        .pingInterval(5, TimeUnit.SECONDS) // detecta conexiones muertas
         .retryOnConnectionFailure(false)
         .build()
 }
@@ -98,10 +101,21 @@ class LanLink(
     /** Resuelve la dirección actual de la tablet (mDNS o última conocida). `null` = no encontrada. */
     private val resolveEndpoint: suspend () -> LanEndpoint?,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val pingIntervalMs: Long = 5_000,
+    /** Ping cifrado (mide RTT y mantiene viva la sesión aunque el sensor no entregue datos). */
+    private val pingIntervalMs: Long = 10_000,
+    /** Sin tramas de la tablet durante este tiempo ⇒ enlace muerto y reconexión. */
+    private val livenessTimeoutMs: Long = 35_000,
     private val stepTimeoutMs: Long = 8_000,
     private val maxBackoffMs: Long = 15_000,
 ) {
+    private val wake = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
+
+    /** Sesiones autenticadas establecidas por este enlace (diagnóstico y pruebas). */
+    @Volatile var sessionsEstablished: Int = 0; private set
+
+    /** Reintenta ya, sin esperar el backoff (p. ej. cuando vuelve la red Wi-Fi). */
+    fun reconnectNow() { wake.trySend(Unit) }
+
     private val _status = MutableStateFlow(LinkStatus(LinkState.IDLE, record.peerName))
     val status: StateFlow<LinkStatus> = _status.asStateFlow()
 
@@ -172,7 +186,7 @@ class LanLink(
                 // Tras una sesión que llegó a autenticarse, reintenta rápido.
                 if (authenticated) backoff = 1_000L
             }
-            delay(backoff)
+            kotlinx.coroutines.withTimeoutOrNull(backoff) { wake.receive() }
             backoff = (backoff * 2).coerceAtMost(maxBackoffMs)
         }
     }
@@ -198,6 +212,8 @@ class LanLink(
         val ch = SecureChannel.forClient(keys)
         channel = ch
         authenticated = true
+        sessionsEstablished++
+        while (wake.tryReceive().isSuccess) Unit // descarta avisos de reconexión antiguos
         _status.value = LinkStatus(LinkState.CONNECTED, record.peerName, endpoint.host, rttMs = lastRtt)
         coroutineScope {
             val pinger = launch {
@@ -208,7 +224,7 @@ class LanLink(
             }
             try {
                 while (true) {
-                    val msg = c.receive(pingIntervalMs * 3) as? LanMessage.Secure ?: throw LanException("Trama inesperada")
+                    val msg = c.receive(livenessTimeoutMs) as? LanMessage.Secure ?: throw LanException("Trama inesperada")
                     val body = ch.open(msg)?.let { SecureBody.decode(it) } ?: throw LanException("Trama no auténtica")
                     when (body) {
                         is SecureBody.Pong -> {
