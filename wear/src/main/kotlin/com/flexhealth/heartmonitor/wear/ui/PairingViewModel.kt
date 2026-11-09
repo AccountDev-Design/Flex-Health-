@@ -8,6 +8,7 @@ import com.flexhealth.heartmonitor.core.android.DiscoveredReceiver
 import com.flexhealth.heartmonitor.core.android.NsdBrowser
 import com.flexhealth.heartmonitor.lan.LanClients
 import com.flexhealth.heartmonitor.lan.LanEndpoint
+import com.flexhealth.heartmonitor.lan.LocalAddressAlias
 import com.flexhealth.heartmonitor.lan.pairWithReceiver
 import com.flexhealth.heartmonitor.protocol.ProtocolConstants
 import com.flexhealth.heartmonitor.wear.transport.WifiNetworkRequester
@@ -65,6 +66,7 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
         val host = t.substringBeforeLast(':').takeIf { t.count { it == ':' } == 1 } ?: t
         val port = t.substringAfterLast(':', "").toIntOrNull()?.takeIf { t.count { it == ':' } == 1 } ?: ProtocolConstants.LAN_DEFAULT_PORT
         if (host.isBlank() || port !in 1..65535) { _ui.value = PairingUi.Failed("Dirección inválida"); return }
+        if (LocalAddressAlias.aliasFor(host) == null) { _ui.value = PairingUi.Failed("Introduce la IP local de la tablet (p. ej. 192.168.1.20)"); return }
         pair(LanEndpoint(host, port), host)
     }
 

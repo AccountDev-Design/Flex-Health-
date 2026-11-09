@@ -55,6 +55,13 @@
 
 - Servidor en la tablet: `ws://<ip>:47820/flexheart` (si el puerto está ocupado, uno efímero).
 - Descubrimiento: mDNS/DNS-SD `_flexheart._tcp.`, TXT `rid=<id del receptor>`, `v=1`. Alternativa: IP manual.
+- **Network Security Config (reloj):** el cliente WebSocket (OkHttp) está sujeto a la política de tráfico en
+  claro de Android, que no admite rangos de IP. La app del reloj prohíbe el tráfico en claro salvo para el
+  dominio `lan.flexheart.local`; el cliente LAN expresa la IP local de la tablet como alias
+  (`192.168.1.3` → `ws://192-168-1-3.lan.flexheart.local:47820/flexheart`) y su `Dns` solo resuelve esos
+  alias, sin consultar la red, a IP privadas (RFC 1918, ULA), de enlace local o loopback. Además
+  `WsConnection` rechaza cualquier destino que no sea un alias local antes de abrir el socket. El receptor
+  (servidor) no abre conexiones en claro y mantiene el bloqueo por defecto en ambos *flavors*.
 - En el reloj la red se obtiene con `ConnectivityManager.requestNetwork(TRANSPORT_WIFI)` sin exigir
   `NET_CAPABILITY_INTERNET`, y el socket se ata a esa red (no sale por el proxy Bluetooth del teléfono).
 - Límites: tramas ≤ 8 KB, autenticación en ≤ 10 s, 5 fallos/min por IP → bloqueo temporal, un solo reloj

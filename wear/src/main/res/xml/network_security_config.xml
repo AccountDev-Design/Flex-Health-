@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Tráfico en claro: prohibido para toda la app EXCEPTO el dominio sintético lan.flexheart.local, que el
+  cliente LAN (core:lan LocalAddressAlias) usa para las IP de la red local, p. ej.
+  192.168.1.3 -> 192-168-1-3.lan.flexheart.local. Su DNS solo resuelve esos alias a IP privadas, de enlace
+  local o loopback. El contenido viaja cifrado y autenticado (ECDH P-256 + AES-256-GCM, ver
+  CONNECTION_PROTOCOL.md). Network Security Config no admite rangos de IP, de ahí el alias.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">lan.flexheart.local</domain>
+    </domain-config>
+</network-security-config>

@@ -26,8 +26,14 @@ import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
 data class LanEndpoint(val host: String, val port: Int) {
+    /**
+     * URL del WebSocket. Las IP locales se expresan con su alias de [LocalAddressAlias] (p. ej.
+     * `ws://192-168-1-3.lan.flexheart.local:47820/flexheart`), único dominio autorizado para tráfico en
+     * claro por la Network Security Config del reloj. Otros hosts se dejan tal cual (y serán rechazados por
+     * [LocalAddressAlias.dns]).
+     */
     val url: String get() {
-        val h = if (host.contains(':') && !host.startsWith("[")) "[$host]" else host
+        val h = LocalAddressAlias.aliasFor(host) ?: if (host.contains(':') && !host.startsWith("[")) "[$host]" else host
         return "ws://$h:$port${ProtocolConstants.LAN_WS_PATH}"
     }
 }
@@ -35,6 +41,7 @@ data class LanEndpoint(val host: String, val port: Int) {
 object LanClients {
     /** Cliente OkHttp adecuado para la red local. En el reloj se le inyecta el SocketFactory de la red Wi-Fi. */
     fun okHttp(builder: OkHttpClient.Builder = OkHttpClient.Builder()): OkHttpClient = builder
+        .dns(LocalAddressAlias.dns) // solo IP locales; sin consultas DNS externas
         .connectTimeout(5, TimeUnit.SECONDS)
         .readTimeout(0, TimeUnit.SECONDS)
         .pingInterval(5, TimeUnit.SECONDS) // detecta conexiones muertas

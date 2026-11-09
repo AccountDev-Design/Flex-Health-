@@ -4,6 +4,7 @@ import com.flexhealth.heartmonitor.protocol.LanMessage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withTimeout
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
@@ -65,6 +66,11 @@ internal class WsConnection private constructor() : WebSocketListener() {
 
     companion object {
         suspend fun open(client: OkHttpClient, url: String, timeoutMs: Long): WsConnection {
+            // Solo red local: OkHttp no consulta el Dns con literales IP, así que se valida aquí también.
+            val host = url.replaceFirst(Regex("^ws(s?)://", RegexOption.IGNORE_CASE), "http$1://").toHttpUrlOrNull()?.host
+            if (host == null || LocalAddressAlias.resolveAlias(host) == null) {
+                throw LanException("Destino no permitido para el enlace local: ${host ?: url}", cause = java.net.UnknownHostException(host))
+            }
             val c = WsConnection()
             c.socket = client.newWebSocket(Request.Builder().url(url).build(), c)
             try {

@@ -147,6 +147,40 @@ class LanIntegrationTest {
         assertTrue(received.isEmpty())
     }
 
+    @Test fun clientRefusesNonLocalDestinationsWithoutConnecting() = runBlocking {
+        try {
+            pairWithReceiver(http, LanEndpoint("8.8.8.8", port), "watch-id", "W", { _, _ -> }, { true }, stepTimeoutMs = 3_000); fail()
+        } catch (e: LanException) {
+            assertTrue(e.message!!, e.cause is java.net.UnknownHostException || e.message!!.contains("no permitido"))
+        }
+    }
+
+    /**
+     * Conexión real por la IP privada (no loopback) de esta máquina, como la IP dinámica que el router
+     * asigna a la tablet: servidor en todas las interfaces, cliente con alias + DNS local.
+     */
+    @Test fun pairsAndStreamsThroughPrivateLanAddress() = runBlocking {
+        val lanIp = java.net.NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList() }.firstOrNull { it is java.net.Inet4Address && it.isSiteLocalAddress }
+        org.junit.Assume.assumeNotNull(lanIp)
+        val loopback = server
+        val anyServer = LanServer(LanServerConfig("tablet-id", "Galaxy Tab S10 FE", port = 0), serverStore, listener)
+        val p = anyServer.start()
+        server = anyServer // el listener acepta el emparejamiento en este servidor; tearDown lo cierra
+        loopback.close()
+        val ep = LanEndpoint(lanIp!!.hostAddress, p)
+        assertTrue(ep.url, ep.url.contains(".lan.flexheart.local:"))
+        anyServer.pairingOpen = true
+        val rec = pairWithReceiver(http, ep, "watch-id", "Galaxy Watch6 Classic", { _, _ -> }, { true })
+        val link = LanLink(scope, http, rec, { ep })
+        link.start()
+        withTimeout(5_000) { link.status.first { it.state == LinkState.CONNECTED } }
+        assertTrue(link.send(pkt(0, 77)))
+        withTimeout(5_000) { while (received.isEmpty()) kotlinx.coroutines.delay(20) }
+        assertEquals(77, received.single().bpm)
+        link.stop()
+    }
+
     @Test fun linkReconnectsAfterServerRestart() = runBlocking {
         val (record, _) = pair()
         val link = LanLink(scope, http, record, { endpoint }, maxBackoffMs = 500)

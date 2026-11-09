@@ -34,6 +34,8 @@
 - La conexión directa sin teléfono (P-10) y sin Internet (P-11) **está implementada pero sin verificar** en
   el hardware. Si Wear OS no levantara el Wi-Fi sin la condición `INTERNET`, la alternativa documentada es fijar
   el Wi-Fi del reloj en «Activado» o usar un router con salida a Internet. El tráfico sigue siendo local.
+- La «Dirección manual» del reloj solo acepta **IP locales** (no nombres de host): la política de tráfico en
+  claro solo autoriza los alias de IP privadas (ver CONNECTION_PROTOCOL.md).
 - mDNS puede estar bloqueado por algunos routers (aislamiento de clientes o multicast): usa «Dirección manual».
 - **Hotspot de la tablet:** no implementado ni verificado. Que el modelo Wi-Fi de la Tab S10 FE ofrezca punto de
   acceso depende del modelo y del firmware. `LocalOnlyHotspot` daría un SSID y una contraseña aleatorios que
