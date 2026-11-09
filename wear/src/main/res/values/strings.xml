@@ -53,5 +53,15 @@
     <string name="link_phone">Tel.</string>
     <string name="link_tablet">Tab.</string>
     <string name="unreliable">Lectura no fiable</string>
+    <string name="pair_method">¿Cómo te conectas a la tablet?</string>
+    <string name="method_wifi">Wi-Fi (misma red)</string>
+    <string name="method_ble">Bluetooth LE (directo)</string>
+    <string name="change_method">Cambiar método</string>
+    <string name="searching_ble">Buscando tablets por Bluetooth…</string>
+    <string name="ble_perm_rationale">Bluetooth cercano: solo para conectar con tu tablet. No se usa para localizarte.</string>
+    <string name="ble_perm_denied">Permiso de Bluetooth denegado</string>
+    <string name="tablet_link">Conexión con la tablet</string>
+    <string name="transport_wifi">Wi-Fi</string>
+    <string name="transport_ble">Bluetooth LE</string>
     <string name="wellness_note">Solo bienestar. No apto para diagnóstico.</string>
 </resources>

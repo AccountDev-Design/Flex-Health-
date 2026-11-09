@@ -39,4 +39,19 @@ object ProtocolConstants {
     const val LAN_WS_PATH: String = "/flexheart"
     /** Tamaño máximo de una trama WebSocket aceptada (las legítimas ocupan < 1 KB). */
     const val LAN_MAX_FRAME_BYTES: Int = 8 * 1024
+
+    // --- Bluetooth LE directo reloj ↔ tablet (tablet = servidor GATT, reloj = cliente) ---
+    /** Servicio Flex Heart. UUID propio de 128 bits generado para este proyecto. */
+    const val BLE_SERVICE_UUID: String = "8e4f1a00-6b2d-4c73-9a51-3f0d2c7b5e19"
+    /** Reloj → tablet (Write con respuesta). */
+    const val BLE_RX_UUID: String = "8e4f1a01-6b2d-4c73-9a51-3f0d2c7b5e19"
+    /** Tablet → reloj (Notify). */
+    const val BLE_TX_UUID: String = "8e4f1a02-6b2d-4c73-9a51-3f0d2c7b5e19"
+    /** Client Characteristic Configuration Descriptor (estándar Bluetooth SIG). */
+    const val BLE_CCCD_UUID: String = "00002902-0000-1000-8000-00805f9b34fb"
+    /** MTU solicitada por el reloj (máximo de Android). La real la negocia la pila Bluetooth. */
+    const val BLE_REQUESTED_MTU: Int = 517
+    const val BLE_DEFAULT_MTU: Int = 23
+    /** Bytes del hash del id del receptor incluidos en el anuncio (identifica la tablet emparejada). */
+    const val BLE_RID_HASH_BYTES: Int = 6
 }

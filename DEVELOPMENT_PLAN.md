@@ -18,6 +18,9 @@ Leyenda: ✅ completada y verificada en este entorno · 🟡 implementada, verif
 | 10 | Integración | 🟡 | Las 3 APK compilan; prueba JVM reloj→motor del receptor con paquetes del `PacketFactory` real. Extremo a extremo en hardware pendiente. |
 | 11 | Optimización y pruebas finales | 🟡 | Lint limpio en todos los módulos Android. FPS/CPU/batería **no medidos** (sin hardware); procedimiento de medición en TESTING.md. |
 
+| 12 | Flex Link Dual (BLE) | 🟡 | Protocolo/seguridad/reconexión sobre GATT simulado (12 pruebas). Radio real pendiente (P-21). |
+| 13 | Lag del reloj | 🟡 | Causas L1–L5 corregidas; release firmada con perfiles; medición en el reloj pendiente (P-22). |
+
 ## Próximos pasos (requieren hardware)
 
 1. Ejecutar P-01…P-20 de TESTING.md con los tres dispositivos y anotar resultados.

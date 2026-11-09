@@ -4,6 +4,15 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+/*
+ * Firma de release. Si defines un keystore propio (en ~/.gradle/gradle.properties o variables de entorno,
+ * NUNCA en el repositorio) se usa; si no, la build release (R8, sin depuración, con perfiles de referencia)
+ * se firma con la clave de depuración local para poder instalarla y medir el rendimiento real.
+ * Reloj y móvil deben compilarse en la misma máquina: Wear Data Layer exige la misma firma.
+ */
+fun signingProp(name: String, env: String): String? = providers.gradleProperty(name).orElse(providers.environmentVariable(env)).orNull
+val releaseStoreFile = signingProp("flexheart.storeFile", "FLEXHEART_STORE_FILE")
+
 android {
     namespace = "com.flexhealth.heartmonitor.receiver"
     compileSdk = 37
@@ -12,8 +21,8 @@ android {
         applicationId = "com.flexhealth.heartmonitor"
         minSdk = 30
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     flavorDimensions += "device"
@@ -31,8 +40,20 @@ android {
         }
     }
 
+    signingConfigs {
+        if (releaseStoreFile != null) {
+            create("release") {
+                storeFile = file(releaseStoreFile)
+                storePassword = signingProp("flexheart.storePassword", "FLEXHEART_STORE_PASSWORD")
+                keyAlias = signingProp("flexheart.keyAlias", "FLEXHEART_KEY_ALIAS")
+                keyPassword = signingProp("flexheart.keyPassword", "FLEXHEART_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
@@ -72,6 +93,8 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     // Versión explícita requerida por registerForActivityResult (lint InvalidFragmentVersionForActivityResult).
     implementation(libs.androidx.fragment.ktx)
+    // Instala los perfiles de referencia (app + bibliotecas) también en instalaciones por adb.
+    implementation(libs.androidx.profileinstaller)
     implementation(libs.androidx.lifecycle.service)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

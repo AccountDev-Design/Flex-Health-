@@ -51,6 +51,17 @@
 - Tras perder el reloj, la tablet mantiene la sesión como «Conectado» hasta 45 s (tiempo de inactividad);
   durante ese tiempo el dato ya aparece como «Sin señal» a los 5 s.
 
+## Bluetooth LE (Flex Link Dual)
+- **Sin probar en hardware.** Validado: protocolo, fragmentación, seguridad y reconexión sobre un enlace GATT
+  **simulado** en la JVM. No validado: radio, pila Bluetooth de Samsung, MTU real, alcance, consumo.
+- La tablet debe soportar anuncio BLE (`isMultipleAdvertisementSupported`); si no, el modo BLE lo indica.
+- Android rota la dirección Bluetooth de anuncio: si la dirección guardada deja de valer, el reloj vuelve a
+  escanear (hasta 8 s). Algunas pilas devuelven el error GATT 133 de forma intermitente: se reintenta con
+  *backoff*.
+- El hash de 6 bytes del id del receptor es estable (como el TXT de mDNS en Wi-Fi): permite reconocer la
+  tablet por radio mientras anuncia.
+- Para recibir por BLE la app de la tablet debe tener el servicio en marcha (modo «Tablet · BLE»).
+
 ## Overlay
 - Necesita el permiso «Mostrar sobre otras apps». Android no permite superponerse a **todas** las interfaces:
   la barra de estado, los ajustes del sistema, instaladores, pantallas de bloqueo y contenido protegido
@@ -74,6 +85,12 @@
   transiciones. El impacto real en los FPS de Geometry Dash y en la batería del reloj está pendiente (P-18,
   P-20).
 
+## Rendimiento del reloj
+- La mejora esperada (release + perfiles) **no está medida en el SM-R950**. Medición: TESTING.md › P-22.
+- El perfil de referencia es genérico (todo el código de la app). Uno generado con Macrobenchmark en el reloj
+  sería más preciso; requiere el dispositivo.
+
 ## Release
-- Las APK *release* se generan sin firmar (`*-release-unsigned.apk`) y no se han probado. Para producción hay
-  que configurar un keystore propio (fuera del repositorio) y verificar las reglas de R8 en un dispositivo.
+- Sin keystore propio, release se firma con la clave de depuración local (válida para instalar con adb, no para
+  distribuir). Para distribuir: keystore propio en `~/.gradle/gradle.properties` (ver README).
+- Las reglas de R8 no se han verificado en un dispositivo (P-22).

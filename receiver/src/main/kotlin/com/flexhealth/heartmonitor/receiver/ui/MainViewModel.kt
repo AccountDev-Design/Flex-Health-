@@ -15,6 +15,7 @@ import com.flexhealth.heartmonitor.receiver.service.MonitorService
 import com.flexhealth.heartmonitor.receiver.transport.PairingUiState
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -27,8 +28,11 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val snapshot: StateFlow<MonitorSnapshot> = g.engine.snapshot
     val link: StateFlow<LinkStatus> = g.linkStatus.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), LinkStatus())
     val running: StateFlow<Boolean> = g.activeMode.map { it != null }.stateIn(viewModelScope, SharingStarted.Eagerly, g.activeMode.value != null)
-    val pairing: StateFlow<PairingUiState> = g.lan.pairing
-    val paired: StateFlow<List<PairingRecord>> = g.lan.paired
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val pairing: StateFlow<PairingUiState> = g.settings.config
+        .flatMapLatest { cfg -> g.hostedFor(cfg.mode)?.pairing ?: kotlinx.coroutines.flow.flowOf(PairingUiState()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PairingUiState())
+    val paired: StateFlow<List<PairingRecord>> = g.paired.list
 
     fun start() = MonitorService.start(getApplication())
     fun stop() = MonitorService.stop(getApplication())
@@ -37,17 +41,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun setWindow(sec: Int) = viewModelScope.launch { g.settings.setGraphWindow(sec) }
     fun updateOverlay(f: (OverlayPrefs) -> OverlayPrefs) = viewModelScope.launch { g.settings.updateOverlay(f) }
 
-    /** El servidor local debe estar activo para emparejar: arranca el servicio en modo tablet. */
+    /** El servidor (Wi-Fi o Bluetooth LE, según el modo) debe estar activo para emparejar. */
     fun openPairing() = viewModelScope.launch {
-        g.settings.setMode(MonitorMode.TABLET_WIFI)
+        val mode = g.settings.current().mode.takeIf { it.isHosted } ?: MonitorMode.TABLET_WIFI.also { g.settings.setMode(it) }
         MonitorService.start(getApplication())
+        val hosted = g.hostedFor(mode) ?: return@launch
         // Espera a que el servidor arranque antes de abrir la ventana.
-        repeat(50) { if (g.lan.port != 0) { g.lan.openPairingWindow(); return@launch }; kotlinx.coroutines.delay(100) }
+        repeat(50) { if (hosted.ready) { hosted.openPairingWindow(); return@launch }; kotlinx.coroutines.delay(100) }
     }
-    fun closePairing() = g.lan.closePairingWindow()
-    fun accept(r: PairingRequest) = g.lan.accept(r)
-    fun reject(r: PairingRequest) = g.lan.reject(r)
-    fun forget(r: PairingRecord) = g.lan.forget(r)
+    private fun hosted() = config.value?.mode?.let { g.hostedFor(it) }
+    fun closePairing() { hosted()?.closePairingWindow() }
+    fun accept(r: PairingRequest) { hosted()?.accept(r) }
+    fun reject(r: PairingRequest) { hosted()?.reject(r) }
+    fun forget(r: PairingRecord) = g.forget(r)
     fun localAddress(): String? = g.lan.localAddress()
     fun serverPort(): Int = g.lan.port
 }

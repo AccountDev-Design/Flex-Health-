@@ -16,7 +16,7 @@ import java.io.IOException
 class LanException(message: String, val code: String? = null, cause: Throwable? = null) : IOException(message, cause)
 
 /** Adaptador de un WebSocket de OkHttp a corrutinas (una conexión). */
-internal class WsConnection private constructor() : WebSocketListener() {
+internal class WsConnection private constructor(override val label: String) : WebSocketListener(), ClientPipe {
     private val incoming = Channel<String>(capacity = 64)
     private val opened = CompletableDeferred<Unit>()
     val closed = CompletableDeferred<String>()
@@ -41,10 +41,10 @@ internal class WsConnection private constructor() : WebSocketListener() {
         closed.complete("failure: ${t.message}")
     }
 
-    fun send(msg: LanMessage): Boolean = socket?.send(LanMessage.encode(msg)) ?: false
+    override fun send(msg: LanMessage): Boolean = socket?.send(LanMessage.encode(msg)) ?: false
 
     /** Siguiente mensaje; si el par envía un Error, lanza [LanException] con su código. */
-    suspend fun receive(timeoutMs: Long): LanMessage {
+    override suspend fun receive(timeoutMs: Long): LanMessage {
         val text = try {
             withTimeout(timeoutMs) { incoming.receive() }
         } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
@@ -57,12 +57,12 @@ internal class WsConnection private constructor() : WebSocketListener() {
         return msg
     }
 
-    fun close(reason: String = "bye") {
+    override fun close(reason: String) {
         socket?.close(1000, reason)
         incoming.close()
     }
 
-    fun cancel() { socket?.cancel() }
+    override fun cancel() { socket?.cancel() }
 
     companion object {
         suspend fun open(client: OkHttpClient, url: String, timeoutMs: Long): WsConnection {
@@ -71,7 +71,7 @@ internal class WsConnection private constructor() : WebSocketListener() {
             if (host == null || LocalAddressAlias.resolveAlias(host) == null) {
                 throw LanException("Destino no permitido para el enlace local: ${host ?: url}", cause = java.net.UnknownHostException(host))
             }
-            val c = WsConnection()
+            val c = WsConnection(host)
             c.socket = client.newWebSocket(Request.Builder().url(url).build(), c)
             try {
                 withTimeout(timeoutMs) { c.opened.await() }

@@ -30,7 +30,10 @@ import com.flexhealth.heartmonitor.wear.sensor.HeartRateSourceIds
 import com.flexhealth.heartmonitor.wear.sensor.MeasureHeartRateSource
 import com.flexhealth.heartmonitor.wear.sensor.SensorEvent
 import com.flexhealth.heartmonitor.wear.transport.DataLayerSender
+import com.flexhealth.heartmonitor.wear.settings.TabletTransport
+import com.flexhealth.heartmonitor.wear.transport.BleSender
 import com.flexhealth.heartmonitor.wear.transport.LanSender
+import com.flexhealth.heartmonitor.wear.transport.TabletSender
 import com.flexhealth.heartmonitor.wear.ui.WearMainActivity
 import com.flexhealth.heartmonitor.wear.wearApp
 import kotlinx.coroutines.Dispatchers
@@ -50,7 +53,7 @@ import kotlinx.coroutines.withContext
 class MonitoringService : LifecycleService() {
     private var session: Job? = null
     private var phone: DataLayerSender? = null
-    private var tablet: LanSender? = null
+    private var tablet: TabletSender? = null
     private var wakeLock: PowerManager.WakeLock? = null
     @Volatile private var lastSentElapsed = 0L
 
@@ -93,8 +96,13 @@ class MonitoringService : LifecycleService() {
             }
             val record = cfg.tabletPairingId?.let { wearApp.pairings.find(it) } // Keystore: fuera del hilo principal
             if (cfg.sendToTablet && record != null) {
-                val t = LanSender(this@MonitoringService, this, record, cfg.tabletLastEndpoint) { ep ->
-                    wearApp.settings.setLastEndpoint(ep)
+                val t: TabletSender = when (cfg.tabletTransport) {
+                    TabletTransport.BLE -> BleSender(this@MonitoringService, this, record, cfg.tabletBleAddress) { addr ->
+                        wearApp.settings.setBleAddress(addr)
+                    }
+                    TabletTransport.WIFI -> LanSender(this@MonitoringService, this, record, cfg.tabletLastEndpoint) { ep ->
+                        wearApp.settings.setLastEndpoint(ep)
+                    }
                 }.also { tablet = it }
                 t.start()
                 launch { t.status.collect { s -> MonitoringRepository.update { it.copy(tablet = s) }; updateWakeLock(cfg.lowLatency) } }
@@ -170,7 +178,10 @@ class MonitoringService : LifecycleService() {
     }
 
     private fun goForeground(): Boolean {
-        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH else 0
+        // health: sensor de FC; connectedDevice: enlace con el teléfono/tablet (Data Layer, Wi-Fi o BLE).
+        val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_HEALTH or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+        } else 0
         return try {
             ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), type)
             true

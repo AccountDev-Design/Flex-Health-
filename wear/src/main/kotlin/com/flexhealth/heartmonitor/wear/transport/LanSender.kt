@@ -29,12 +29,12 @@ class LanSender(
     private val record: PairingRecord,
     private val lastKnown: LanEndpoint?,
     private val onEndpointResolved: suspend (LanEndpoint) -> Unit,
-) {
+) : TabletSender {
     private val wifi = WifiNetworkRequester(context)
     private val nsd = NsdBrowser(context)
     private val client: OkHttpClient = LanClients.okHttp(OkHttpClient.Builder().socketFactory(wifi.socketFactory))
     private val _status = MutableStateFlow(LinkStatus(LinkState.IDLE, record.peerName))
-    val status: StateFlow<LinkStatus> = _status.asStateFlow()
+    override val status: StateFlow<LinkStatus> = _status.asStateFlow()
     private var link: LanLink? = null
     private var mirror: Job? = null
 
@@ -42,7 +42,7 @@ class LanSender(
     @Volatile private var preferCached = true
     private var netWatch: Job? = null
 
-    fun start() {
+    override fun start() {
         if (link != null) return
         wifi.request()
         val l = LanLink(scope, client, record, resolveEndpoint = ::resolve)
@@ -77,10 +77,10 @@ class LanSender(
         return known // mDNS bloqueado por el router: se intenta la última dirección conocida
     }
 
-    fun send(packet: HeartRatePacket): Boolean = link?.send(packet) ?: false
+    override fun send(packet: HeartRatePacket): Boolean = link?.send(packet) ?: false
 
     /** Cierre inmediato sin suspender (seguro en el hilo principal durante onDestroy). */
-    fun close() {
+    override fun close() {
         netWatch?.cancel(); netWatch = null
         mirror?.cancel(); mirror = null
         link?.close(); link = null
@@ -88,7 +88,7 @@ class LanSender(
         nsd.close()
     }
 
-    suspend fun stop() {
+    override suspend fun stop() {
         netWatch?.cancel(); netWatch = null
         mirror?.cancel(); mirror = null
         link?.stop(); link = null

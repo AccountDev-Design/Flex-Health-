@@ -9,7 +9,10 @@ import com.flexhealth.heartmonitor.engine.HeartRateEngine
 import com.flexhealth.heartmonitor.protocol.LinkStatus
 import com.flexhealth.heartmonitor.receiver.data.MonitorMode
 import com.flexhealth.heartmonitor.receiver.data.ReceiverSettings
+import com.flexhealth.heartmonitor.receiver.transport.BleReceiver
 import com.flexhealth.heartmonitor.receiver.transport.DataLayerReceiver
+import com.flexhealth.heartmonitor.receiver.transport.HostedReceiver
+import com.flexhealth.heartmonitor.receiver.transport.PairedDevices
 import com.flexhealth.heartmonitor.receiver.transport.LanReceiver
 import com.flexhealth.heartmonitor.receiver.transport.ReceiverTransport
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -29,7 +32,9 @@ class AppGraph(context: Context) {
     val settings = ReceiverSettings(context)
     val engine = HeartRateEngine(AndroidEngineClock)
     val pairingStore by lazy { KeystorePairingStore(context, "receiver_pairings.bin") }
-    val lan by lazy { LanReceiver(context, pairingStore) }
+    val paired by lazy { PairedDevices(pairingStore) }
+    val lan by lazy { LanReceiver(context, pairingStore, paired) }
+    val ble by lazy { BleReceiver(context, pairingStore, paired) }
     val dataLayer by lazy { DataLayerReceiver(context) }
 
     /** Modo activo en el servicio (`null` = servicio detenido). */
@@ -38,6 +43,20 @@ class AppGraph(context: Context) {
     fun transportFor(mode: MonitorMode): ReceiverTransport = when (mode) {
         MonitorMode.PHONE_BLUETOOTH -> dataLayer
         MonitorMode.TABLET_WIFI -> lan
+        MonitorMode.TABLET_BLE -> ble
+    }
+
+    fun hostedFor(mode: MonitorMode): HostedReceiver? = when (mode) {
+        MonitorMode.TABLET_WIFI -> lan
+        MonitorMode.TABLET_BLE -> ble
+        MonitorMode.PHONE_BLUETOOTH -> null
+    }
+
+    /** Olvida un reloj en ambos transportes (la clave es común). */
+    fun forget(record: com.flexhealth.heartmonitor.protocol.crypto.PairingRecord) {
+        paired.delete(record)
+        lan.disconnectIfActive(record)
+        ble.disconnectIfActive(record)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

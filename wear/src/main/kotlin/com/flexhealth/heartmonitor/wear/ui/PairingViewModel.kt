@@ -9,7 +9,13 @@ import com.flexhealth.heartmonitor.core.android.NsdBrowser
 import com.flexhealth.heartmonitor.lan.LanClients
 import com.flexhealth.heartmonitor.lan.LanEndpoint
 import com.flexhealth.heartmonitor.lan.LocalAddressAlias
+import com.flexhealth.heartmonitor.lan.pairOverPipe
 import com.flexhealth.heartmonitor.lan.pairWithReceiver
+import com.flexhealth.heartmonitor.wear.transport.ble.BleConnector
+import com.flexhealth.heartmonitor.wear.transport.ble.BleScanner
+import com.flexhealth.heartmonitor.wear.transport.ble.FoundTablet
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import com.flexhealth.heartmonitor.protocol.ProtocolConstants
 import com.flexhealth.heartmonitor.wear.transport.WifiNetworkRequester
 import com.flexhealth.heartmonitor.wear.wearApp
@@ -26,6 +32,7 @@ import okhttp3.OkHttpClient
 
 sealed interface PairingUi {
     data object Idle : PairingUi
+    data class BleSearching(val found: List<FoundTablet>) : PairingUi
     data object NoWifi : PairingUi
     data class Searching(val found: List<DiscoveredReceiver>) : PairingUi
     data class Connecting(val target: String) : PairingUi
@@ -40,6 +47,10 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
     private val wifi = WifiNetworkRequester(app)
     private val nsd = NsdBrowser(app)
     private val client = LanClients.okHttp(OkHttpClient.Builder().socketFactory(wifi.socketFactory))
+    private val bleScanner = BleScanner(app)
+    private val bleConnector = BleConnector(app)
+    /** E/S Bluetooth fuera del hilo de UI, ligada al ciclo de vida del ViewModel. */
+    private val ioScope = CoroutineScope(SupervisorJob(viewModelScope.coroutineContext[Job]) + Dispatchers.IO)
     private val _ui = MutableStateFlow<PairingUi>(PairingUi.Idle)
     val ui: StateFlow<PairingUi> = _ui.asStateFlow()
     private var job: Job? = null
@@ -96,6 +107,53 @@ class PairingViewModel(app: Application) : AndroidViewModel(app) {
                 app.wearApp.settings.setTablet(record.pairingId, record.peerName, endpoint)
                 _ui.value = PairingUi.Success(record.peerName)
                 }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.value = PairingUi.Failed(e.message ?: e.toString())
+            }
+        }
+    }
+
+    fun fail(message: String) { job?.cancel(); _ui.value = PairingUi.Failed(message) }
+
+    fun chooseMethod() { job?.cancel(); _ui.value = PairingUi.Idle }
+
+    /** Busca tablets Flex Heart por Bluetooth LE (los permisos se piden antes desde la pantalla). */
+    fun startBleDiscovery() {
+        job?.cancel()
+        _ui.value = PairingUi.BleSearching(emptyList())
+        job = ioScope.launch {
+            try {
+                bleScanner.scan().collect { _ui.value = PairingUi.BleSearching(it) }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _ui.value = PairingUi.Failed(e.message ?: e.toString())
+            }
+        }
+    }
+
+    /** Emparejamiento por Bluetooth LE: mismo protocolo seguro (ECDH + código) que por Wi-Fi. */
+    fun pairBle(tablet: FoundTablet) {
+        job?.cancel()
+        _ui.value = PairingUi.Connecting(tablet.name)
+        val app = getApplication<Application>()
+        job = ioScope.launch {
+            try {
+                val pipe = bleConnector.open(tablet.device, tablet.name, ioScope)
+                val record = pairOverPipe(
+                    pipe, DeviceIdentity.id(app), DeviceIdentity.displayName(),
+                    onCode = { code, name -> _ui.value = PairingUi.Code(code, name) },
+                    awaitUserConfirm = {
+                        val d = CompletableDeferred<Boolean>().also { confirm = it }
+                        d.await().also { ok -> if (ok) _ui.value = PairingUi.WaitingTablet }
+                    },
+                )
+                app.wearApp.pairings.all().filter { it.pairingId != record.pairingId }.forEach { app.wearApp.pairings.delete(it.pairingId) }
+                app.wearApp.pairings.save(record)
+                app.wearApp.settings.setTabletBle(record.pairingId, record.peerName, tablet.address)
+                _ui.value = PairingUi.Success(record.peerName)
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

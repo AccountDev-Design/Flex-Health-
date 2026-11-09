@@ -5,7 +5,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import com.flexhealth.heartmonitor.core.android.ble.BlePermissions
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -33,7 +34,15 @@ private const val KEY_IP = "ip"
 @Composable
 fun PairingScreen(onDone: () -> Unit, vm: PairingViewModel = viewModel()) {
     val ui by vm.ui.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { vm.startDiscovery() }
+    val context = LocalContext.current
+    val deniedText = stringResource(R.string.ble_perm_denied)
+    val blePermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
+        if (result.values.all { it }) vm.startBleDiscovery() else vm.fail(deniedText)
+    }
+    val startBle = {
+        val perms = BlePermissions.central()
+        if (BlePermissions.granted(context, perms)) vm.startBleDiscovery() else blePermissions.launch(perms)
+    }
     val manualHint = stringResource(R.string.manual_ip_hint)
     val manual = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val text = result.data?.let { RemoteInput.getResultsFromIntent(it)?.getCharSequence(KEY_IP)?.toString() }
@@ -49,7 +58,27 @@ fun PairingScreen(onDone: () -> Unit, vm: PairingViewModel = viewModel()) {
     ScreenScaffold(scrollState = listState) { padding ->
         ScalingLazyColumn(state = listState, contentPadding = padding, modifier = Modifier.fillMaxWidth()) {
             when (val s = ui) {
-                PairingUi.Idle, is PairingUi.Searching -> {
+                PairingUi.Idle -> {
+                    item { ListHeader { Text(stringResource(R.string.pair_method), textAlign = TextAlign.Center) } }
+                    item { Button(onClick = { vm.startDiscovery() }, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.method_wifi)) }) }
+                    item { Button(onClick = startBle, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.method_ble)) }) }
+                    item { Text(stringResource(R.string.ble_perm_rationale), fontSize = 11.sp, textAlign = TextAlign.Center) }
+                }
+                is PairingUi.BleSearching -> {
+                    item { ListHeader { Text(stringResource(R.string.method_ble)) } }
+                    if (s.found.isEmpty()) {
+                        item { CircularProgressIndicator() }
+                        item { Text(stringResource(R.string.searching_ble), fontSize = 12.sp, textAlign = TextAlign.Center) }
+                    }
+                    s.found.forEach { t ->
+                        item {
+                            Button(onClick = { vm.pairBle(t) }, modifier = Modifier.fillMaxWidth(), label = { Text(t.name) },
+                                secondaryLabel = { Text("${t.rssi} dBm") })
+                        }
+                    }
+                    item { FilledTonalButton(onClick = { vm.chooseMethod() }, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.change_method)) }) }
+                }
+                is PairingUi.Searching -> {
                     item { ListHeader { Text(stringResource(R.string.pair_tablet)) } }
                     val found = (s as? PairingUi.Searching)?.found.orEmpty()
                     if (found.isEmpty()) {
@@ -63,6 +92,7 @@ fun PairingScreen(onDone: () -> Unit, vm: PairingViewModel = viewModel()) {
                         }
                     }
                     item { FilledTonalButton(onClick = launchManual, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.manual_ip)) }) }
+                    item { FilledTonalButton(onClick = { vm.chooseMethod() }, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.change_method)) }) }
                 }
                 PairingUi.NoWifi -> {
                     item { Text(stringResource(R.string.no_wifi), textAlign = TextAlign.Center, fontSize = 13.sp) }
@@ -92,7 +122,7 @@ fun PairingScreen(onDone: () -> Unit, vm: PairingViewModel = viewModel()) {
                 }
                 is PairingUi.Failed -> {
                     item { Text(s.message, color = HeartRed, textAlign = TextAlign.Center, fontSize = 12.sp) }
-                    item { Button(onClick = { vm.startDiscovery() }, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.retry)) }) }
+                    item { Button(onClick = { vm.chooseMethod() }, modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.retry)) }) }
                 }
             }
         }

@@ -65,8 +65,21 @@ suspend fun pairWithReceiver(
     awaitUserConfirm: suspend () -> Boolean,
     stepTimeoutMs: Long = 10_000,
     decisionTimeoutMs: Long = 120_000,
+): PairingRecord = pairOverPipe(
+    WsConnection.open(client, endpoint.url, stepTimeoutMs), deviceId, deviceName, onCode, awaitUserConfirm, stepTimeoutMs, decisionTimeoutMs,
+)
+
+/** Emparejamiento sobre cualquier transporte (WebSocket o Bluetooth LE). Cierra [pipe] al terminar. */
+suspend fun pairOverPipe(
+    pipe: ClientPipe,
+    deviceId: String,
+    deviceName: String,
+    onCode: (code: String, receiverName: String) -> Unit,
+    awaitUserConfirm: suspend () -> Boolean,
+    stepTimeoutMs: Long = 10_000,
+    decisionTimeoutMs: Long = 120_000,
 ): PairingRecord {
-    val conn = WsConnection.open(client, endpoint.url, stepTimeoutMs)
+    val conn = pipe
     try {
         val initiator = PairingInitiator(deviceId, deviceName)
         conn.send(initiator.hello())
@@ -85,7 +98,7 @@ suspend fun pairWithReceiver(
     } catch (e: SecurityProtocolException) {
         throw LanException(e.message ?: "Error de seguridad", LanErrorCodes.AUTH_FAILED, e)
     } finally {
-        conn.close()
+        conn.close("bye")
     }
 }
 
@@ -96,10 +109,12 @@ suspend fun pairWithReceiver(
  */
 class LanLink(
     private val scope: CoroutineScope,
-    private val client: OkHttpClient,
     private val record: PairingRecord,
-    /** Resuelve la dirección actual de la tablet (mDNS o última conocida). `null` = no encontrada. */
-    private val resolveEndpoint: suspend () -> LanEndpoint?,
+    /**
+     * Abre una conexión nueva con la tablet por el transporte elegido (WebSocket o Bluetooth LE).
+     * `null` = la tablet no se encuentra ahora mismo (se reintentará con backoff).
+     */
+    private val connect: suspend () -> ClientPipe?,
     private val clock: () -> Long = System::currentTimeMillis,
     /** Ping cifrado (mide RTT y mantiene viva la sesión aunque el sensor no entregue datos). */
     private val pingIntervalMs: Long = 10_000,
@@ -107,7 +122,27 @@ class LanLink(
     private val livenessTimeoutMs: Long = 35_000,
     private val stepTimeoutMs: Long = 8_000,
     private val maxBackoffMs: Long = 15_000,
+    /** Texto para la UI cuando [connect] no encuentra la tablet. */
+    private val notFoundMessage: String = "Tablet no encontrada en la red",
 ) {
+    /** Constructor del transporte Wi-Fi (WebSocket), con la misma firma que antes. */
+    constructor(
+        scope: CoroutineScope,
+        client: OkHttpClient,
+        record: PairingRecord,
+        resolveEndpoint: suspend () -> LanEndpoint?,
+        clock: () -> Long = System::currentTimeMillis,
+        pingIntervalMs: Long = 10_000,
+        livenessTimeoutMs: Long = 35_000,
+        stepTimeoutMs: Long = 8_000,
+        maxBackoffMs: Long = 15_000,
+    ) : this(
+        scope, record,
+        connect = { resolveEndpoint()?.let { WsConnection.open(client, it.url, stepTimeoutMs) } },
+        clock = clock, pingIntervalMs = pingIntervalMs, livenessTimeoutMs = livenessTimeoutMs,
+        stepTimeoutMs = stepTimeoutMs, maxBackoffMs = maxBackoffMs,
+    )
+
     private val wake = kotlinx.coroutines.channels.Channel<Unit>(kotlinx.coroutines.channels.Channel.CONFLATED)
 
     /** Sesiones autenticadas establecidas por este enlace (diagnóstico y pruebas). */
@@ -119,7 +154,7 @@ class LanLink(
     private val _status = MutableStateFlow(LinkStatus(LinkState.IDLE, record.peerName))
     val status: StateFlow<LinkStatus> = _status.asStateFlow()
 
-    @Volatile private var conn: WsConnection? = null
+    @Volatile private var conn: ClientPipe? = null
     @Volatile private var channel: SecureChannel? = null
     @Volatile private var lastRtt: Long? = null
     @Volatile private var authenticated = false
@@ -162,40 +197,39 @@ class LanLink(
         var backoff = 1_000L
         while (true) {
             _status.value = LinkStatus(LinkState.SEARCHING, record.peerName)
-            val endpoint = try { resolveEndpoint() } catch (e: CancellationException) { throw e } catch (e: Exception) { null }
-            if (endpoint == null) {
-                _status.value = LinkStatus(LinkState.UNAVAILABLE, record.peerName, "Tablet no encontrada en la red")
-            } else {
-                authenticated = false
-                try {
-                    session(endpoint)
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: LanException) {
-                    if (e.code == LanErrorCodes.UNKNOWN_PAIRING || e.code == LanErrorCodes.AUTH_FAILED) {
-                        _status.value = LinkStatus(LinkState.ERROR, record.peerName, "La tablet no reconoce este reloj: vuelve a emparejar")
-                        return
-                    }
-                    _status.value = LinkStatus(LinkState.ERROR, record.peerName, e.message)
-                } catch (e: Exception) {
-                    _status.value = LinkStatus(LinkState.ERROR, record.peerName, e.message ?: e.toString())
-                } finally {
-                    channel = null
-                    conn?.cancel(); conn = null
+            authenticated = false
+            try {
+                val pipe = connect()
+                if (pipe == null) {
+                    _status.value = LinkStatus(LinkState.UNAVAILABLE, record.peerName, notFoundMessage)
+                } else {
+                    conn = pipe
+                    session(pipe)
                 }
-                // Tras una sesión que llegó a autenticarse, reintenta rápido.
-                if (authenticated) backoff = 1_000L
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: LanException) {
+                if (e.code == LanErrorCodes.UNKNOWN_PAIRING || e.code == LanErrorCodes.AUTH_FAILED) {
+                    _status.value = LinkStatus(LinkState.ERROR, record.peerName, "La tablet no reconoce este reloj: vuelve a emparejar")
+                    conn?.cancel(); conn = null; channel = null
+                    return
+                }
+                _status.value = LinkStatus(LinkState.ERROR, record.peerName, e.message)
+            } catch (e: Exception) {
+                _status.value = LinkStatus(LinkState.ERROR, record.peerName, e.message ?: e.toString())
+            } finally {
+                channel = null
+                conn?.cancel(); conn = null
             }
+            // Tras una sesión que llegó a autenticarse, reintenta rápido.
+            if (authenticated) backoff = 1_000L
             kotlinx.coroutines.withTimeoutOrNull(backoff) { wake.receive() }
             backoff = (backoff * 2).coerceAtMost(maxBackoffMs)
         }
     }
 
-    private suspend fun session(endpoint: LanEndpoint) {
-        _status.value = LinkStatus(LinkState.CONNECTING, record.peerName, endpoint.host)
-        val c = WsConnection.open(client, endpoint.url, stepTimeoutMs)
-        conn = c
-        _status.value = LinkStatus(LinkState.AUTHENTICATING, record.peerName, endpoint.host)
+    private suspend fun session(c: ClientPipe) {
+        _status.value = LinkStatus(LinkState.AUTHENTICATING, record.peerName, c.label)
         val clientNonce = CryptoBytes.random(SessionKeys.NONCE_BYTES)
         c.send(LanMessage.Hello(ProtocolConstants.PROTOCOL_VERSION, record.pairingId, CryptoBytes.b64(clientNonce), clock()))
         val challenge = c.receive(stepTimeoutMs) as? LanMessage.Challenge ?: throw LanException("Reto inesperado")
@@ -214,7 +248,7 @@ class LanLink(
         authenticated = true
         sessionsEstablished++
         while (wake.tryReceive().isSuccess) Unit // descarta avisos de reconexión antiguos
-        _status.value = LinkStatus(LinkState.CONNECTED, record.peerName, endpoint.host, rttMs = lastRtt)
+        _status.value = LinkStatus(LinkState.CONNECTED, record.peerName, c.label, rttMs = lastRtt)
         coroutineScope {
             val pinger = launch {
                 while (true) {

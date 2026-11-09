@@ -42,32 +42,51 @@ fun ConnectionScreen(
     pairing: PairingUiState, paired: List<PairingRecord>, address: String?, port: Int,
     onMode: (MonitorMode) -> Unit, onOpenPairing: () -> Unit, onClosePairing: () -> Unit,
     onAccept: (PairingRequest) -> Unit, onReject: (PairingRequest) -> Unit, onForget: (PairingRecord) -> Unit,
+    bleProblem: String? = null, onGrantBle: () -> Unit = {},
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         GlassCard(Modifier.fillMaxWidth()) {
             SectionTitle("Modo de conexión") { Pill(link.label(), link.color()) }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ModeTile("Smartphone", "Reloj → Data Layer → este móvil", mode == MonitorMode.PHONE_BLUETOOTH, Modifier.weight(1f)) { onMode(MonitorMode.PHONE_BLUETOOTH) }
-                ModeTile("Tablet", "Reloj → Wi-Fi local → esta tablet", mode == MonitorMode.TABLET_WIFI, Modifier.weight(1f)) { onMode(MonitorMode.TABLET_WIFI) }
+                ModeTile("Tablet · Wi-Fi", "Reloj → Wi-Fi local → esta tablet", mode == MonitorMode.TABLET_WIFI, Modifier.weight(1f)) { onMode(MonitorMode.TABLET_WIFI) }
+                ModeTile("Tablet · BLE", "Reloj → Bluetooth LE directo → esta tablet", mode == MonitorMode.TABLET_BLE, Modifier.weight(1f)) { onMode(MonitorMode.TABLET_BLE) }
             }
             VSpace(10)
             Text(
-                if (mode == MonitorMode.PHONE_BLUETOOTH)
-                    "Usa el teléfono emparejado con el reloj en la app Galaxy Wearable. Data Layer usa Bluetooth cuando el reloj está cerca; si no, puede enrutar por red (se indica en «Conexión directa»)."
-                else
-                    "El reloj se conecta directamente a esta tablet por la red Wi-Fi local, sin teléfono ni Internet. Ambos deben estar en la misma red.",
+                when (mode) {
+                    MonitorMode.PHONE_BLUETOOTH ->
+                        "Usa el teléfono emparejado con el reloj en la app Galaxy Wearable. Data Layer usa Bluetooth cuando el reloj está cerca; si no, puede enrutar por red (se indica en «Conexión directa»)."
+                    MonitorMode.TABLET_WIFI ->
+                        "El reloj se conecta directamente a esta tablet por la red Wi-Fi local, sin teléfono ni Internet. Ambos deben estar en la misma red."
+                    MonitorMode.TABLET_BLE ->
+                        "El reloj se conecta a esta tablet por Bluetooth LE, sin router, Internet ni teléfono. Un reloj ya emparejado por Wi-Fi puede usar BLE sin volver a emparejar."
+                },
                 style = MaterialTheme.typography.bodyMedium, color = Flex.TextLow,
             )
         }
 
-        if (mode == MonitorMode.TABLET_WIFI) {
+        if (mode.isHosted) {
             GlassCard(Modifier.fillMaxWidth()) {
-                SectionTitle("Servidor local") {}
-                KeyValue("Estado", if (running) link.label() else "Detenido", if (running) link.color() else Flex.TextLow)
-                KeyValue("Dirección", if (running && port != 0) "${address ?: "sin Wi-Fi"}:$port" else "—")
-                KeyValue("Descubrimiento", "mDNS ${ProtocolConstants.NSD_SERVICE_TYPE}")
+                if (mode == MonitorMode.TABLET_WIFI) {
+                    SectionTitle("Servidor local") {}
+                    KeyValue("Estado", if (running) link.label() else "Detenido", if (running) link.color() else Flex.TextLow)
+                    KeyValue("Dirección", if (running && port != 0) "${address ?: "sin Wi-Fi"}:$port" else "—")
+                    KeyValue("Descubrimiento", "mDNS ${ProtocolConstants.NSD_SERVICE_TYPE}")
+                } else {
+                    SectionTitle("Servidor Bluetooth LE") {}
+                    KeyValue("Estado", if (running) link.label() else "Detenido", if (running) link.color() else Flex.TextLow)
+                    KeyValue("Rol", "Servidor GATT · anuncio conectable")
+                    if (bleProblem != null) {
+                        Text(bleProblem, style = MaterialTheme.typography.bodyMedium, color = Flex.Warn)
+                        VSpace(8)
+                        GlassButton("Conceder Bluetooth cercano", onGrantBle, Modifier.fillMaxWidth(), accent = Flex.Heart)
+                        VSpace(4)
+                    }
+                }
                 KeyValue("Cifrado", "AES-256-GCM tras emparejamiento ECDH P-256")
                 link.rttMs?.let { KeyValue("Latencia (RTT)", "$it ms") }
+                link.detail?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = Flex.TextLow) }
             }
             GlassCard(Modifier.fillMaxWidth()) {
                 SectionTitle("Emparejamiento") {}
@@ -86,7 +105,9 @@ fun ConnectionScreen(
                     }
                     pairing.windowOpen -> {
                         Text("Ventana abierta ${pairing.secondsLeft} s", style = MaterialTheme.typography.titleMedium, color = Flex.Warn)
-                        Text("En el reloj: Flex Heart › Ajustes › Emparejar tablet. Si no aparece, usa «Dirección manual» con ${address ?: "la IP de la tablet"}.",
+                        Text(
+                            if (mode == MonitorMode.TABLET_BLE) "En el reloj: Flex Heart › Ajustes › Emparejar tablet › Bluetooth."
+                            else "En el reloj: Flex Heart › Ajustes › Emparejar tablet › Wi-Fi. Si no aparece, usa «Dirección manual» con ${address ?: "la IP de la tablet"}.",
                             style = MaterialTheme.typography.bodyMedium, color = Flex.TextLow)
                         VSpace(10)
                         GlassButton("Cerrar ventana", onClosePairing, Modifier.fillMaxWidth())

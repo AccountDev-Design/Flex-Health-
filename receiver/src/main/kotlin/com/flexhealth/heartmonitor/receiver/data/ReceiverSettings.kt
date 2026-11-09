@@ -19,6 +19,12 @@ enum class MonitorMode {
     PHONE_BLUETOOTH,
     /** Galaxy Watch6 Classic → Wi-Fi local (WebSocket cifrado) → tablet, sin teléfono. */
     TABLET_WIFI,
+    /** Galaxy Watch6 Classic → Bluetooth LE directo (GATT, mismo cifrado) → tablet, sin router ni teléfono. */
+    TABLET_BLE,
+    ;
+
+    /** Modos en los que este dispositivo actúa como servidor del protocolo seguro (emparejamiento propio). */
+    val isHosted: Boolean get() = this == TABLET_WIFI || this == TABLET_BLE
 }
 
 /** Preferencias del widget flotante. Las posiciones se guardan como fracciones por orientación. */

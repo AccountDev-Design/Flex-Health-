@@ -2,7 +2,6 @@ package com.flexhealth.heartmonitor.wear.sensor
 
 import android.content.Context
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.MeasureCallback
 import androidx.health.services.client.data.Availability
@@ -35,6 +34,7 @@ class MeasureHeartRateSource(private val context: Context) : HeartRateSource {
     }
 
     override fun events(): Flow<SensorEvent> = callbackFlow {
+        val callbackExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "flexheart-hs-measure") }
         val measure = client
         val boot = HealthServicesMapping.bootInstant()
         val callback = object : MeasureCallback {
@@ -52,13 +52,16 @@ class MeasureHeartRateSource(private val context: Context) : HeartRateSource {
             if (!isSupported()) {
                 send(SensorEvent.Status(SensorStatus.UNAVAILABLE, "heart_rate_not_supported"))
             } else {
-                measure.registerMeasureCallback(DataType.HEART_RATE_BPM, ContextCompat.getMainExecutor(context), callback)
+                measure.registerMeasureCallback(DataType.HEART_RATE_BPM, callbackExecutor, callback) // fuera del hilo de UI
                 send(SensorEvent.Status(SensorStatus.ACQUIRING))
             }
         } catch (e: SecurityException) {
             send(SensorEvent.Status(SensorStatus.PERMISSION_DENIED, e.message))
         }
-        awaitClose { runCatching { measure.unregisterMeasureCallbackAsync(DataType.HEART_RATE_BPM, callback) } }
+        awaitClose {
+            runCatching { measure.unregisterMeasureCallbackAsync(DataType.HEART_RATE_BPM, callback) }
+            callbackExecutor.shutdown()
+        }
     }
 
     private companion object { const val TAG = "MeasureHrSource" }

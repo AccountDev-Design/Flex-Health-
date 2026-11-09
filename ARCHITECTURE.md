@@ -87,11 +87,54 @@ Wi-Fi se prueban en la JVM, incluida una conexión WebSocket real por TCP (loopb
   degradado. Componentes reutilizables en `ui/components`; pantallas separadas en `ui/screens`; navegación
   adaptable (barra inferior en móvil, raíl lateral en tablet ≥ 600 dp).
 
+## Flex Link Dual (Wi-Fi + Bluetooth LE)
+
+```mermaid
+flowchart LR
+  subgraph W["Reloj (cliente)"]
+    LL["LanLink<br/>sesión segura + ping + reconexión"]
+    LL -->|ClientPipe| WS["WsConnection<br/>OkHttp WebSocket"]
+    LL -->|ClientPipe| FC["FramedClientPipe<br/>+ BleConnector (GATT)"]
+  end
+  subgraph T["Tablet (servidor)"]
+    SH["SessionHost<br/>emparejamiento, auth, AES-GCM, anti-replay,<br/>1 sesión activa, inactividad"]
+    LS["LanServer<br/>Java-WebSocket"] -->|ServerPipe| SH
+    BR["BleReceiver<br/>GATT server + anuncio"] -->|FramedServerPipe| SH
+  end
+  WS -- "ws:// Wi-Fi local" --> LS
+  FC -- "BLE: RX write / TX notify" --> BR
+```
+
+- El usuario elige el transporte **manualmente**: en el reloj (*Ajustes › Conexión con la tablet*) y en la
+  tablet (*Conexión › Tablet · Wi-Fi / Tablet · BLE*). Un emparejamiento sirve para ambos.
+- **Un solo código de seguridad:** la lógica de sesión que estaba en `LanServer` se movió sin cambios a
+  `SessionHost`; `LanLink` y `pairOverPipe` funcionan sobre la interfaz `ClientPipe`. El transporte Wi-Fi
+  conserva su API pública y sus 22 pruebas.
+- **BLE:** tablet = servidor GATT y anunciante; reloj = cliente (rol central, el más habitual en Wear OS).
+  Fragmentación propia (`BleFraming`) con MTU negociada; `FramedServerPipe` mantiene una sola notificación en
+  vuelo (requisito de Android). Detalles en CONNECTION_PROTOCOL.md.
+
+## Rendimiento del reloj
+
+Auditoría (2026-11-09). Causas con evidencia:
+
+| # | Causa | Corrección |
+|---|---|---|
+| L1 | Las APK instaladas eran **debuggable**: 15 dex sin R8, sin perfil de referencia. Google documenta que debug penaliza a Compose y que en Wear OS no usa perfiles. La release no se podía instalar: estaba sin firmar. | Release firmada (keystore propio o clave de depuración local), R8 + `shrinkResources`. |
+| L2 | Sin perfil de referencia de la app. | `src/main/baseline-prof.txt` + `androidx.profileinstaller` (AOT del código de la app al instalar). |
+| L3 | *Ajustes* observaba todo el estado y se recomponía con cada BPM o RTT. | Solo observa `running`. |
+| L4 | Callbacks de Health Services en el hilo principal (ráfagas cada 2 s con `flushAsync`). | Ejecutor dedicado. |
+| L5 | Resultados de envío de Data Layer en el hilo principal. | Ejecutor dedicado. |
+
+Previas (commit aaf8758): sesión, JSON, cifrado y Keystore fuera del hilo principal; UI con modelo reducido;
+sin bucle de 1 Hz. **No se ha reducido la frecuencia cardíaca ni se han quitado animaciones.**
+
 ## Decisiones principales
 
 | Decisión | Motivo |
 |---|---|
 | Health Services ExerciseClient como fuente por defecto | API oficial de Wear OS para FC continua con pantalla apagada; no requiere autorización de Samsung. |
+| BLE propio solo para la tablet (GATT) | La tablet no está emparejada con el reloj como «teléfono»: Data Layer no sirve. GATT directo + la misma seguridad de aplicación que Wi-Fi. |
 | Data Layer para el teléfono, sin GATT propio | Es el mecanismo oficial reloj↔teléfono emparejado. Un servidor GATT propio duplicaría la conexión Bluetooth que Wear OS ya gestiona y no aporta nada al requisito (ver KNOWN_LIMITATIONS.md). |
 | WebSocket + cifrado de aplicación (no TLS) en LAN | TLS exigiría certificados/PKI en una red local sin Internet. Se usa ECDH P-256 + comparación numérica + AES-256-GCM (CONNECTION_PROTOCOL.md). |
 | P-256 en lugar de X25519 | Disponible en todas las versiones Android soportadas (API 30+) y en la JVM de pruebas. |

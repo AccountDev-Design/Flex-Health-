@@ -1,0 +1,10 @@
+# Perfil de referencia (Baseline Profile) del código de la app. ART lo compila por adelantado (AOT) al
+# instalar gracias a androidx.profileinstaller, en lugar de interpretar/JIT en las primeras ejecuciones.
+# Complementa los perfiles que ya traen Compose, Wear Compose y Lifecycle. Solo se aplica en builds release
+# (las builds debuggable no usan perfiles).
+HSPLcom/flexhealth/heartmonitor/**;->**(**)**
+Lcom/flexhealth/heartmonitor/**;
+HSPLkotlinx/coroutines/**;->**(**)**
+Lkotlinx/coroutines/**;
+HSPLkotlinx/serialization/json/**;->**(**)**
+Lkotlinx/serialization/json/**;

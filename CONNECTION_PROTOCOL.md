@@ -60,6 +60,27 @@
   (Bluetooth; o nube de Google con cifrado extremo a extremo cuando no hay Bluetooth). Por eso no se añade
   cifrado propio aquí. `Node.isNearby` se muestra como «Conexión directa».
 
+## Modo tablet — Bluetooth LE directo (Flex Link Dual)
+
+- **Roles:** tablet = servidor GATT + anunciante conectable; reloj = cliente GATT. Sin bonding del sistema:
+  la seguridad es la misma de la capa de aplicación (emparejamiento, autenticación mutua, AES-256-GCM con
+  anti-replay) que en Wi-Fi, implementada por el mismo código (`SessionHost`, `LanLink`).
+- **Servicio** `8e4f1a00-6b2d-4c73-9a51-3f0d2c7b5e19`:
+  - RX `8e4f1a01-…` (reloj → tablet): *Write* con respuesta (fiable y ordenado).
+  - TX `8e4f1a02-…` (tablet → reloj): *Notify* + CCCD `0x2902`. Una notificación en vuelo por dispositivo
+    (`onNotificationSent`).
+- **Anuncio:** flags + UUID del servicio (≤ 31 bytes). Respuesta al escaneo: *service data* con los 6 primeros
+  bytes de SHA-256("FHM-ble-rid-v1", idReceptor), para que el reloj encuentre su tablet sin revelar el id.
+- **Fragmentación** (`BleFraming`): 1 byte de cabecera (bit 7 = último; bits 0–6 = id de mensaje) + datos;
+  fragmento ≤ MTU − 3. El reloj solicita MTU 517; una muestra cifrada (~366 B) ocupa 2 fragmentos con MTU 247
+  y 20 con MTU 23. Mensajes ≤ 8 KB; un fragmento perdido descarta solo ese mensaje (el protocolo tolera huecos).
+- **Reconexión:** `LanLink` (ping cifrado 10 s, margen 35 s, *backoff* 1→15 s). El reloj intenta primero la
+  última dirección conocida (sin escanear) y alterna con un escaneo filtrado (≤ 8 s), para respetar el
+  límite de Android de ~5 escaneos/30 s. Al encender Bluetooth se reintenta al momento. La tablet cierra
+  sesiones sin tramas en 45 s y una reconexión del mismo reloj sustituye la sesión medio abierta.
+- **Duplicados:** un solo `BluetoothGatt` en el reloj; una sesión activa por reloj en la tablet; secuencia +
+  contador GCM evitan lecturas repetidas.
+
 ## Modo tablet — WebSocket local
 
 - Servidor en la tablet: `ws://<ip>:47820/flexheart` (si el puerto está ocupado, uno efímero).

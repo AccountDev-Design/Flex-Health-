@@ -16,6 +16,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import com.flexhealth.heartmonitor.core.android.ble.BlePermissions
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.flexhealth.heartmonitor.receiver.ui.screens.PermissionItem
 import com.flexhealth.heartmonitor.receiver.ui.theme.FlexTheme
@@ -24,8 +25,11 @@ class MainActivity : ComponentActivity() {
     private val vm: MainViewModel by viewModels()
     private var canDrawOverlays by mutableStateOf(false)
     private var notificationsGranted by mutableStateOf(true)
+    private var bleProblem by mutableStateOf<String?>(null)
+    private var bleGranted by mutableStateOf(true)
 
     private val notifPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { refreshPermissions() }
+    private val blePermission = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { refreshPermissions() }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -43,6 +47,7 @@ class MainActivity : ComponentActivity() {
                     FlexApp(
                         vm = vm, config = cfg, snapshot = snapshot, link = link, running = running, pairing = pairing, paired = paired,
                         canDrawOverlays = canDrawOverlays, onGrantOverlay = ::openOverlaySettings, permissions = permissionItems(),
+                        bleProblem = bleProblem, onGrantBle = ::requestBle,
                     )
                 }
             }
@@ -55,6 +60,13 @@ class MainActivity : ComponentActivity() {
         canDrawOverlays = Settings.canDrawOverlays(this)
         notificationsGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        bleGranted = BlePermissions.granted(this, BlePermissions.peripheral())
+        bleProblem = BlePermissions.problem(this, BlePermissions.peripheral())
+    }
+
+    private fun requestBle() {
+        val perms = BlePermissions.peripheral()
+        if (perms.isNotEmpty()) blePermission.launch(perms)
     }
 
     private fun openOverlaySettings() {
@@ -68,6 +80,13 @@ class MainActivity : ComponentActivity() {
             "Permite el widget flotante con tus BPM encima de juegos como Geometry Dash. Sin él, la app funciona pero sin overlay.",
             canDrawOverlays, optional = false, onRequest = ::openOverlaySettings,
         ))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            add(PermissionItem(
+                "Bluetooth cercano",
+                "Solo para el modo «Tablet · BLE»: anunciar esta tablet y aceptar la conexión directa del reloj por Bluetooth LE. No se usa para localizarte.",
+                bleGranted, optional = true, onRequest = ::requestBle,
+            ))
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             add(PermissionItem(
                 "Notificaciones",

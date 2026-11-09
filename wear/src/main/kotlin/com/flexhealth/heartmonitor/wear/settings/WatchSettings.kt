@@ -12,6 +12,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
+/** Transporte reloj → tablet, elegido manualmente por el usuario. */
+enum class TabletTransport { WIFI, BLE }
+
 data class WatchConfig(
     val sourceId: String = HeartRateSourceIds.EXERCISE,
     val sendToPhone: Boolean = true,
@@ -25,6 +28,8 @@ data class WatchConfig(
     val tabletPairingId: String? = null,
     val tabletName: String? = null,
     val tabletLastEndpoint: LanEndpoint? = null,
+    val tabletTransport: TabletTransport = TabletTransport.WIFI,
+    val tabletBleAddress: String? = null,
 )
 
 private val Context.watchStore by preferencesDataStore("watch_settings")
@@ -40,6 +45,8 @@ class WatchSettings(private val context: Context) {
         val tabletName = stringPreferencesKey("tablet_name")
         val host = stringPreferencesKey("tablet_host")
         val port = intPreferencesKey("tablet_port")
+        val transport = stringPreferencesKey("tablet_transport")
+        val bleAddress = stringPreferencesKey("tablet_ble_address")
     }
 
     val config: Flow<WatchConfig> = context.watchStore.data.map { p ->
@@ -51,6 +58,8 @@ class WatchSettings(private val context: Context) {
             tabletPairingId = p[K.pairingId],
             tabletName = p[K.tabletName],
             tabletLastEndpoint = p[K.host]?.let { h -> p[K.port]?.let { LanEndpoint(h, it) } },
+            tabletTransport = p[K.transport]?.let { runCatching { TabletTransport.valueOf(it) }.getOrNull() } ?: TabletTransport.WIFI,
+            tabletBleAddress = p[K.bleAddress],
         )
     }
 
@@ -63,12 +72,22 @@ class WatchSettings(private val context: Context) {
 
     suspend fun setTablet(pairingId: String, name: String, endpoint: LanEndpoint) = context.watchStore.edit {
         it[K.pairingId] = pairingId; it[K.tabletName] = name; it[K.host] = endpoint.host; it[K.port] = endpoint.port
-        it[K.tablet] = true
+        it[K.transport] = TabletTransport.WIFI.name; it[K.tablet] = true
     }
+
+    suspend fun setTabletTransport(t: TabletTransport) = context.watchStore.edit { it[K.transport] = t.name }
+
+    /** Emparejamiento hecho por Bluetooth LE: guarda la tablet, su dirección y selecciona BLE. */
+    suspend fun setTabletBle(pairingId: String, name: String, address: String) = context.watchStore.edit {
+        it[K.pairingId] = pairingId; it[K.tabletName] = name; it[K.bleAddress] = address
+        it[K.transport] = TabletTransport.BLE.name; it[K.tablet] = true
+    }
+
+    suspend fun setBleAddress(address: String) = context.watchStore.edit { it[K.bleAddress] = address }
 
     suspend fun setLastEndpoint(endpoint: LanEndpoint) = context.watchStore.edit { it[K.host] = endpoint.host; it[K.port] = endpoint.port }
 
     suspend fun clearTablet() = context.watchStore.edit {
-        it.remove(K.pairingId); it.remove(K.tabletName); it.remove(K.host); it.remove(K.port); it[K.tablet] = false
+        it.remove(K.pairingId); it.remove(K.tabletName); it.remove(K.host); it.remove(K.port); it.remove(K.bleAddress); it[K.tablet] = false
     }
 }

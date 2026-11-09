@@ -34,6 +34,8 @@ class DataLayerSender(context: Context, private val scope: CoroutineScope) {
     private val _status = MutableStateFlow(LinkStatus(LinkState.IDLE))
     val status: StateFlow<LinkStatus> = _status.asStateFlow()
     val sent = AtomicLong(0)
+    /** Los resultados de envío se procesan fuera del hilo de UI (L5). */
+    private val callbackExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "flexheart-datalayer") }
     val failed = AtomicLong(0)
 
     private val listener = CapabilityClient.OnCapabilityChangedListener { info -> update(info) }
@@ -69,8 +71,8 @@ class DataLayerSender(context: Context, private val scope: CoroutineScope) {
         val bytes = PacketCodec.encode(packet)
         for (node in targets) {
             messageClient.sendMessage(node.id, ProtocolConstants.DATA_LAYER_PATH_HEART_RATE, bytes)
-                .addOnSuccessListener { sent.incrementAndGet() }
-                .addOnFailureListener {
+                .addOnSuccessListener(callbackExecutor) { sent.incrementAndGet() }
+                .addOnFailureListener(callbackExecutor) {
                     failed.incrementAndGet()
                     _status.value = _status.value.copy(detail = "Error de envío: ${it.message}")
                 }
@@ -80,6 +82,7 @@ class DataLayerSender(context: Context, private val scope: CoroutineScope) {
     fun stop() {
         capabilityClient.removeListener(listener, ProtocolConstants.DATA_LAYER_CAPABILITY_RECEIVER)
         nodes = emptySet()
+        callbackExecutor.shutdown()
         _status.value = LinkStatus(LinkState.IDLE)
     }
 

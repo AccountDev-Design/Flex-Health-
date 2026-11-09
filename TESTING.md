@@ -4,15 +4,15 @@
 
 | Tipo | Estado |
 |---|---|
-| Pruebas automatizadas JVM | ✅ 73 pruebas: protocolo 22, motor 22, transporte LAN 22 (1 omitida si la máquina no tiene IP privada), reloj 7 |
-| Pruebas del receptor (Robolectric + configuración) | ✅ 22 pruebas: geometría del overlay 6, overlay real 9, estado del overlay 2, capturas 4, política de tráfico en claro 1 (se ejecutan para ambos *flavors*) |
+| Pruebas automatizadas JVM | ✅ 86 pruebas: protocolo 22, motor 22, transporte LAN + BLE 35 (1 omitida si la máquina no tiene IP privada), reloj 7 |
+| Pruebas del receptor (Robolectric + configuración) | ✅ 24 pruebas: geometría del overlay 6, overlay real 9, estado del overlay 2, capturas 4, política de tráfico en claro 1, selección de transporte 2 (se ejecutan para ambos *flavors*) |
 | Pruebas en emulador | ❌ **No ejecutadas**: el entorno de desarrollo no tiene `/dev/kvm`, así que no puede arrancar un emulador Android. |
 | Pruebas en hardware físico | ❌ **No ejecutadas**: no hay acceso al SM-R950, al Galaxy A55 5G ni a la Galaxy Tab S10 FE. |
 | Lint | ✅ 0 incidencias en `:wear`, `:receiver` (mobile y tablet) y `:core:android` |
 | Compilación | ✅ `assembleDebug` y `assembleRelease` (R8) de las tres APK |
 
 ```bash
-./gradlew test       # 117 ejecuciones (95 pruebas únicas; las de :receiver corren en mobile y tablet)
+./gradlew test       # 134 ejecuciones (110 pruebas únicas; las de :receiver corren en mobile y tablet)
 ```
 
 ## 2. Pruebas automatizadas
@@ -31,6 +31,9 @@
 | Reconexiones: actividad sin PONG, sesión silenciosa, red lenta, suspensión corta/larga, reconexión inmediata | `core/lan/.../LanLivenessTest` (proxy TCP con retardo/congelación) |
 | Lecturas inválidas: fuera de la muñeca, no fiables, picos aislados, cambios reales confirmados, datos antiguos | `core/engine/.../AccuracyTest`, `wear/.../ReadingGateTest`, `receiver/.../OverlayStatusTest` |
 | Rendimiento (JVM, límites holgados): ingesta, fotograma de gráfica, cifrado; UI del reloj sin emisiones invisibles | `PerformanceTest`, `CryptoPerformanceTest`, `wear/.../MonitorUiFlowTest` |
+| BLE: fragmentación (MTU 23–517), emparejamiento y datos con MTU mínima, clave falsa, repetición e inyección, cliente sin autenticar, pérdida de notificaciones, corte y reconexión, sesión medio abierta sustituida sin duplicados, inactividad | `core/lan/.../ble/BleFramingTest`, `BleTransportTest` (enlace GATT **simulado**) |
+| Benchmark (PC) del trabajo por muestra del reloj | `core/lan/.../ble/WatchPipelineBenchmarkTest` |
+| Selección de transporte en la tablet; BLE sin permiso informa del motivo | `receiver/.../TransportSelectionTest` |
 | Revisión visual | `receiver/.../ScreenshotTest` → `build/screenshots/*.png` |
 
 ## 3. Instalación en los dispositivos
@@ -38,6 +41,8 @@
 ```bash
 ./gradlew assembleDebug
 ```
+
+> Instala las APK **release** (`*-release.apk`) para usar y medir; las *debug* son solo para depurar.
 
 ### Galaxy Watch6 Classic SM-R950
 1. *Ajustes › Acerca del reloj › Software* → toca **Versión de software** 5 veces (opciones de desarrollador).
@@ -82,3 +87,6 @@ Marca cada una como ✅/❌ con fecha, versión de firmware y observaciones.
 | P-18 | Rendimiento en el juego | `adb shell dumpsys gfxinfo com.robtopx.geometryjump reset`, jugar 2 min con y sin overlay, `dumpsys gfxinfo … framestats`. | Diferencia de *janky frames* y percentil 90 anotada. |
 | P-19 | Segundo plano | Cerrar la app receptora (deslizar en recientes) con el servicio activo 30 min. | El overlay y la recepción continúan. |
 | P-20 | Sesión prolongada | 2 h de sesión. Reloj: `adb shell dumpsys batterystats`; receptor: `dumpsys meminfo com.flexhealth.heartmonitor.tablet` cada 30 min. | Memoria estable (sin crecimiento); consumo de batería anotado. |
+| P-21 | **BLE reloj → tablet** | Tablet en «Tablet · BLE» (+ permiso Bluetooth cercano). Reloj: Emparejar tablet › Bluetooth, o Ajustes › Conexión con la tablet › Bluetooth LE si ya estaba emparejado por Wi-Fi. Wi-Fi de ambos apagado. | Conectado, BPM en vivo, sin router ni teléfono. Repetir alejándose hasta perder el enlace y volviendo: reconexión automática. |
+| P-22 | **Fluidez del reloj (release)** | Instalar `wear-release.apk`. `adb shell cmd package compile -m speed-profile -f com.flexhealth.heartmonitor` (o esperar al dexopt en reposo) y comprobar `adb shell dumpsys package dexopt \| grep -A2 heartmonitor` → `speed-profile`. Navegar 1 min y `adb shell dumpsys gfxinfo com.flexhealth.heartmonitor framestats`. Repetir con la APK debug. | Anotar *janky frames* y p90/p95 de ambas. Se espera una mejora clara con release; **no medida aún**. |
+

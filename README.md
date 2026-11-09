@@ -24,7 +24,7 @@ Android 12+ las tarjetas muestran además el fondo desenfocado.*
 |---|---|---|---|
 | **Flex Heart Watch** | `:wear` | Galaxy Watch6 Classic SM-R950 (Wear OS) | Emisor |
 | **Flex Heart Monitor Mobile** | `:receiver` (*flavor* `mobile`) | Galaxy A55 5G | Wear Data Layer (Bluetooth cuando el reloj está cerca) |
-| **Flex Heart Monitor Tablet** | `:receiver` (*flavor* `tablet`) | Galaxy Tab S10 FE | WebSocket cifrado por Wi-Fi local, **sin teléfono ni Internet** |
+| **Flex Heart Monitor Tablet** | `:receiver` (*flavor* `tablet`) | Galaxy Tab S10 FE | **Flex Link Dual**, a elegir: WebSocket cifrado por Wi-Fi local **o** Bluetooth LE directo (GATT). Ambos sin teléfono ni Internet |
 
 Código compartido (sin duplicación):
 
@@ -46,6 +46,11 @@ echo "sdk.dir=/ruta/a/Android/sdk" > local.properties
 ./gradlew :wear:lintDebug :receiver:lintMobileDebug :receiver:lintTabletDebug
 ```
 
+> **Rendimiento:** para usar o medir la app instala las APK **release** (`*-release.apk`: R8, sin depuración,
+> con perfiles de referencia). Las *debug* son mucho más lentas en el reloj (ver ARCHITECTURE.md › Rendimiento).
+> Si no configuras un keystore propio (`flexheart.storeFile`, `flexheart.storePassword`, `flexheart.keyAlias`,
+> `flexheart.keyPassword` en `~/.gradle/gradle.properties`), release se firma con tu clave de depuración local.
+>
 > **Importante:** compila el reloj y el móvil **en la misma máquina** (mismo keystore de depuración).
 > Wear Data Layer solo entrega mensajes entre apps con el **mismo applicationId y la misma firma**.
 

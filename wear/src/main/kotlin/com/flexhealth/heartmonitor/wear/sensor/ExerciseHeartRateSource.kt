@@ -2,7 +2,6 @@ package com.flexhealth.heartmonitor.wear.sensor
 
 import android.content.Context
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.health.services.client.ExerciseUpdateCallback
 import androidx.health.services.client.HealthServices
 import androidx.health.services.client.data.Availability
@@ -58,6 +57,7 @@ class ExerciseHeartRateSource(
     }
 
     override fun events(): Flow<SensorEvent> = callbackFlow {
+        val callbackExecutor = java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "flexheart-hs-exercise") }
         val exercise = client
         val boot = HealthServicesMapping.bootInstant()
         val callback = object : ExerciseUpdateCallback {
@@ -94,7 +94,8 @@ class ExerciseHeartRateSource(
             }
             // Ejercicio propio huérfano (p. ej. el proceso murió): se cierra para empezar limpio.
             if (HealthServicesMapping.isOwnExerciseInProgress(info)) runCatching { exercise.endExerciseAsync().await() }
-            exercise.setUpdateCallback(ContextCompat.getMainExecutor(context), callback)
+            // Callbacks fuera del hilo de UI (L4): solo mapean y encolan eventos.
+            exercise.setUpdateCallback(callbackExecutor, callback)
             val batching = caps.supportedBatchingModeOverrides.filter { it == BatchingMode.HEART_RATE_5_SECONDS }.toSet()
             val config = ExerciseConfig.Builder(type)
                 .setDataTypes(setOf(DataType.HEART_RATE_BPM))
@@ -124,6 +125,7 @@ class ExerciseHeartRateSource(
             // Libera el sensor: termina el ejercicio y quita el callback (operaciones asíncronas).
             runCatching { exercise.endExerciseAsync() }
             runCatching { exercise.clearUpdateCallbackAsync(callback) }
+            callbackExecutor.shutdown()
         }
     }
 

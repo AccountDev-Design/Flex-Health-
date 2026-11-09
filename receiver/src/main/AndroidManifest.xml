@@ -12,6 +12,12 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Modo tablet: servidor WebSocket en la red local (sin acceso a Internet). -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Modo tablet · BLE: servidor GATT y anuncio (Android 12+); en Android 11 son permisos de instalación. -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
 
     <application
         android:name=".ReceiverApp"

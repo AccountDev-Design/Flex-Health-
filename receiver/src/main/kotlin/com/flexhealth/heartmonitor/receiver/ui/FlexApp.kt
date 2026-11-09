@@ -72,6 +72,7 @@ fun FlexApp(
     vm: MainViewModel, config: ReceiverConfig, snapshot: MonitorSnapshot, link: LinkStatus, running: Boolean,
     pairing: PairingUiState, paired: List<PairingRecord>, canDrawOverlays: Boolean, onGrantOverlay: () -> Unit,
     permissions: List<PermissionItem>,
+    bleProblem: String? = null, onGrantBle: () -> Unit = {},
 ) {
     var tab by rememberSaveable { mutableStateOf(Tab.MONITOR) }
     LiquidBackground {
@@ -85,6 +86,7 @@ fun FlexApp(
                         Tab.CONNECTION -> ConnectionScreen(
                             config.mode, link, running, pairing, paired, vm.localAddress(), vm.serverPort(),
                             { vm.setMode(it) }, { vm.openPairing() }, vm::closePairing, vm::accept, vm::reject, vm::forget,
+                            bleProblem = bleProblem, onGrantBle = onGrantBle,
                         )
                         Tab.OVERLAY -> OverlayScreen(config.overlay, canDrawOverlays, running, { f -> vm.updateOverlay(f) }, onGrantOverlay)
                         Tab.DIAGNOSTICS -> DiagnosticsScreen(snapshot, link, config.mode)
